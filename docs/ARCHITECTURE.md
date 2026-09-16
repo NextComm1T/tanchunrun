@@ -35,8 +35,7 @@ src/
 │  ├─ Header.tsx
 │  ├─ BackButton.tsx
 │  ├─ BottomNav.tsx        홈 3개 탭 하단 탭바 (#34)
-│  ├─ NaverTancheonMap.tsx 실제 위경도 지도 (#84)
-│  └─ TancheonMap.tsx      일러스트 지도 (#33) — **전환 중. #86 이 지운다**
+│  └─ NaverTancheonMap.tsx 실제 위경도 지도 (#84)
 ├─ client/                 브라우저에서만 도는 공용 모듈
 │  ├─ naverMaps.ts         NAVER Maps SDK 로더 (#84)
 │  └─ tracker.ts           tracker record IndexedDB 저장 (#81)
@@ -132,7 +131,9 @@ import { BottomNav } from "@/components/shared/BottomNav";
 
 ### `NaverTancheonMap` (#84)
 
-실제 위경도를 그리는 공용 지도. **새 화면은 이것을 쓴다.**
+실제 위경도를 그리는 **유일한 공용 지도**. 러닝 진행 · 결과 · 기록 상세 · 홈 달리기 탭 네 화면이 함께 쓴다.
+
+일러스트 SVG 지도(`TancheonMap`)는 #86 에서 마지막 consumer(기록 상세)를 옮기고 **삭제했다**. SVG 좌표계(`MapPoint` · `RouteSegment` · `MAP_WIDTH`/`MAP_HEIGHT`)도 함께 사라졌다 — 좌표는 이제 WGS84 하나뿐이다.
 
 ```tsx
 import { NaverTancheonMap, type NaverTancheonMapHandle } from "@/components/shared/NaverTancheonMap";
@@ -167,41 +168,6 @@ import { TANCHEON_ZONE } from "@/domain/measure";
 - 실패하면 **지도 영역만** 안내로 바뀐다. SDK 를 못 받으면(`network`) 「다시 시도」가 있고, key · 서비스 URL 문제(`credential`)는 사용자가 할 수 있는 일이 없어 안내만 한다. 어느 쪽이든 그 화면의 나머지 기능은 계속 동작해야 한다.
 - SDK 로더는 `src/client/naverMaps.ts` 다. `layout.tsx` 에 `<script>` 를 넣지 않는다. env 는 `NEXT_PUBLIC_NAVER_MAP_KEY_ID`(#78 D3-B) 하나이고 **값을 저장소에 두지 않는다.**
 
-### `TancheonMap` — 전환 중 (지우는 것은 #86)
-
-러닝 진행(#40) · 결과(#41) · 기록 상세(#45)가 아직 쓰는 **일러스트** 지도(#33). 홈(#42)은 #84 에서 `NaverTancheonMap` 으로 옮겼다.
-
-**새로 쓰지 않는다.** running 은 #83, result 는 #85, 기록 상세는 #86 이 옮기고, 마지막 consumer 가 옮겨진 뒤 #86 이 이 파일과 SVG 좌표 타입을 지운다. 그때까지 **동결**이다.
-
-좌표계는 원본 SVG 그대로 `MAP_WIDTH`×`MAP_HEIGHT`(340×220)이고, 경로 좌표도 이 좌표계의 값이다.
-
-```tsx
-import { TancheonMap, type RouteSegment } from "@/components/shared/TancheonMap";
-
-// 러닝 진행 — 현재 위치 마커 · 확대
-<TancheonMap route={segments} endMarker={gpsLost ? "gps-lost" : "running"} viewBox={zoomViewBox} />
-
-// 결과 · 기록 상세 — 끝난 경로
-<TancheonMap route={segments} />
-
-// 홈 달리기 탭 — 경로 없이 내 위치만
-<TancheonMap userPin={{ x: 155, y: 112 }} viewBox={zoomViewBox} />
-```
-
-| props | 뜻 |
-| --- | --- |
-| `route?: RouteSegment[]` | 연속 구간 배열(`{ x, y, inZone }[][]`). **구간과 구간 사이는 선을 잇지 않는다** — GPS 가 끊긴 자리다(P2) |
-| `endMarker?: "finished" \| "running" \| "gps-lost"` | 경로 끝점 표시. 기본 `finished`(끝점이 Zone 안이면 파랑, 밖이면 회색) · `running`(현재 위치) · `gps-lost`(유실 색 + "위치 확인 중…") |
-| `userPin?: { x, y }` | 경로 없이 내 위치만 찍는다(홈). `route` 와 함께 넘기면 마커가 겹친다 |
-| `viewBox?: string` | 기본 `0 0 340 220`. 확대한 값은 화면이 계산해서 넘긴다 |
-| `label?: string` | 스크린리더가 읽을 이름. 기본 "탄천 지도" |
-
-- `inZone` 이 바뀌는 점은 앞뒤 선이 함께 가져서 경계에서 색이 갈린다(R11). 경계점을 계산해 넣는 것은 호출하는 쪽(mock 데이터) 몫이다.
-- 속도 초과 구간(P9)을 위한 props 는 없다 — 일반 구간과 같은 스타일로 그린다.
-- **그리지 않는 것** — 확대 · 축소 · 재중심 버튼, 범례, GPS 경고 카드, GPS 확인 중 딤. 디자인에서 지도 바깥 요소라 각 화면이 지도 위에 그린다. 확대 값 · 단계 계산도 화면 몫이다.
-- **크기는 부모가 정한다** — `size-full` 이라 부모 상자에 높이가 있어야 한다. `preserveAspectRatio="xMidYMid slice"` 라 상자 비율에 맞춰 잘린다.
-- `"use client"` 가 없는 환경 중립 컴포넌트다. 클라이언트 화면 안에서 쓰면 클라이언트로 돈다.
-
 ## 디자인 토큰
 
 **임의 hex 를 쓰지 않는다.** 값은 전부 `탄천런.dc.html` 에서 뽑아 `globals.css` 에 토큰으로 들어가 있다. 없는 값이 필요하면 먼저 팀에 말한다.
@@ -227,7 +193,9 @@ Tailwind 유틸로 바로 쓴다 — `bg-surface` · `text-muted` · `rounded-xl
 | 오류 | `text-error` `bg-error-soft` `border-error-border` | `#C4483C` … |
 | GPS 약함 · 경고 | `text-warning` `bg-warning-soft` | `#9B7419` … |
 | 랭킹 1·2·3위 | `text-rank-gold` `-silver` `-bronze` | — |
-| 지도 | `bg-map-base` `bg-map-water` `bg-map-park` … | — |
+| 지도 | `bg-map-base` · `stroke-route-out` · `fill-gps-lost` | 타일 바탕 · Zone 밖 경로 · 신호 유실 마커 |
+
+**일러스트 지도 전용이던 토큰**(`map-block` · `map-road` · `map-park` · `map-water` · `map-water-edge` · `map-label`)은 #86 의 legacy 삭제로 **쓰는 곳이 0** 이 됐다. `globals.css` 는 전원이 공유하는 파일이라 이 Issue 에서 지우지 않았다 — 정리는 팀에 말한 뒤 따로 한다.
 
 전체 목록은 [globals.css](../src/app/globals.css) 에 있고, 값마다 디자인 원본 줄 번호가 주석으로 달려 있다.
 

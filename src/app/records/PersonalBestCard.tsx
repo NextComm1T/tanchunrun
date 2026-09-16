@@ -1,5 +1,11 @@
-import { formatBestDuration, formatDistance, formatPace } from "./format";
-import type { PersonalBest } from "./mock";
+import type { PersonalBest } from "@/server/records";
+
+import {
+  formatBestDuration,
+  formatDistance,
+  formatPace,
+  metersToKm,
+} from "./format";
 
 type BestItemProps = {
   label: string;
@@ -37,19 +43,22 @@ function BestItem({ label, value, unit, divided = false }: BestItemProps) {
 /**
  * 개인 최고 기록 카드(디자인 L860-876).
  *
- * 값은 계산하지 않고 받은 그대로 형식만 바꾼다 — 갱신·보관은 F6 의 몫이다(`mock.ts` 의 `PersonalBest`).
+ * 값은 계산하지 않고 받은 그대로 형식만 바꾼다 — 파생은 `src/server/records.ts` 가 한다(D6).
+ *
+ * **기록이 0건이면 세 값이 모두 `null` 이다.** 거리 · 시간은 빈 상태 표기(`0.0` · `0:00:00`)로
+ * 떨어뜨리고, 페이스만 `--'--"` 로 둔다 — `formatPace` 가 null 을 그렇게 그린다.
  */
 export function PersonalBestCard({ best }: { best: PersonalBest }) {
   return (
     <dl className="grid grid-cols-3 overflow-hidden rounded-xl border-[1.5px] border-border bg-surface shadow-button-soft">
       <BestItem
         label="최장 거리"
-        value={formatDistance(best.longestDistanceKm)}
+        value={formatDistance(metersToKm(best.longestDistanceM ?? 0))}
         unit="km"
       />
       <BestItem
         label="최대 시간"
-        value={formatBestDuration(best.longestDurationSec)}
+        value={formatBestDuration(best.longestDurationSec ?? 0)}
         unit="시:분:초"
         divided
       />

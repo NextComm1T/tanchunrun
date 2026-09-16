@@ -1,12 +1,14 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/shared/AppShell";
-import { TancheonMap } from "@/components/shared/TancheonMap";
+import { NaverTancheonMap } from "@/components/shared/NaverTancheonMap";
+import { TANCHEON_ZONE, type RoutePoint } from "@/domain/measure";
+import { getViewer } from "@/server/auth/session";
+import { getRecord, type RecordDetail } from "@/server/records";
 
-import { formatDate, formatDuration, formatPace } from "../format";
-import { findSession, type RunSession } from "../mock";
+import { formatDate, formatDuration, formatPace, metersToKm } from "../format";
 
 /**
  * 화면 로컬 헤더(정본 L630-638).
@@ -129,22 +131,22 @@ function Metric({
 }
 
 /** 수치 4개 카드(정본 L658-676). */
-function MetricGrid({ session }: { session: RunSession }) {
+function MetricGrid({ session }: { session: RecordDetail }) {
   // 정본 `zoneColor`(L1252) — 인정 거리가 0이면 강조하지 않고 기본 글자색으로 둔다.
-  const zoneTone = session.tancheonDistanceKm > 0 ? "text-success" : "text-foreground";
+  const zoneTone = session.tancheonDistanceM > 0 ? "text-success" : "text-foreground";
 
   return (
     <div className="mx-4 mt-3 mb-[22px] shrink-0 overflow-hidden rounded-2xl border-[1.5px] border-border bg-surface shadow-card">
       <div className="grid grid-cols-2">
         <Metric
           label="총 거리"
-          value={String(session.totalDistanceKm)}
+          value={metersToKm(session.totalDistanceM).toFixed(1)}
           unit="km"
           borderClassName="border-b border-surface-muted"
         />
         <Metric
           label="탄천 인정"
-          value={String(session.tancheonDistanceKm)}
+          value={metersToKm(session.tancheonDistanceM).toFixed(1)}
           unit="km"
           tone={zoneTone}
           borderClassName="border-b border-l border-surface-muted"
@@ -152,7 +154,7 @@ function MetricGrid({ session }: { session: RunSession }) {
         <Metric label="러닝 시간" value={formatDuration(session.durationSec)} borderClassName="" />
         <Metric
           label="평균 페이스"
-          value={formatPace(session.paceSecPerKm)}
+          value={formatPace(session.avgPaceSecPerKm)}
           unit="/km"
           borderClassName="border-l border-surface-muted"
         />
@@ -164,31 +166,71 @@ function MetricGrid({ session }: { session: RunSession }) {
 /**
  * 기록 상세(#45 · F11 · 정본 L628-679).
  *
- * 조회 요청이 없으므로 불러오는 중 · 오류 상태는 성립하지 않는다. 지원하지 않는 session
- * id 는 요청 실패가 아니라 **잘못된 route 식별자**라 `notFound()` 로 보낸다(이슈 #45 AC ·
- * 결정 이력). 가짜 Promise 나 query error 를 만들지 않는다.
+ * **본인의 saved 세션만 볼 수 있다**(P6 · SP1). 타인 세션과 없는 id 를 구분하지 않고 둘 다
+ * `notFound()` 로 보낸다 — 구분하면 어떤 id 가 실재하는지 알려 주는 셈이 된다. 저장에 실패한
+ * 세션도 여기 오지 않는다(P14).
+ *
+ * 조회가 실패하면 `../error.tsx` 가 오류와 「다시 시도」를 맡는다.
  */
 export default async function RecordDetailPage({
   params,
 }: PageProps<"/records/[sessionId]">) {
   const { sessionId } = await params;
-  const session = findSession(sessionId);
+
+  const viewer = await getViewer();
+  if (!viewer) redirect("/login");
+
+  const session = await getRecord(sessionId, viewer.userId);
 
   if (!session) notFound();
 
   // 세션 일자는 `YYYY-MM-DD` 로 저장돼 있어 정본 표기(`2026. 09. 09`)로 바꿔 보여 준다.
-  const displayDate = formatDate(session.date);
+  const displayDate = formatDate(session.runDate);
+
+  /*
+    저장된 점을 지도 계약(#82 `RoutePoint`)으로 맞춘다. 결과 화면(#85)과 같은 변환이다 —
+    `getOrderedRoutePoints` 가 이미 정렬해 두었으므로 여기서 순서를 다시 만지지 않는다.
+    `inZone` 이 null 인 점은 Zone 판정 전의 값이라 밖으로 본다.
+  */
+  const routePoints: RoutePoint[] = session.points.map((point) => ({
+    trackerGeneration: point.trackerGeneration,
+    rawSeq: point.rawSeq,
+    ordinal: point.ordinal,
+    kind: point.kind,
+    segment: point.segment,
+    lat: point.lat,
+    lng: point.lng,
+    recordedAt: point.recordedAt,
+    inZone: point.inZone ?? false,
+    excludedFromPrevReason: point.excludedFromPrevReason,
+  }));
+
+  const lastPoint = routePoints.at(-1);
 
   return (
     <AppShell padded={false} header={<RecordDetailHeader date={displayDate} />}>
       <div className="mx-4 mt-3.5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border-[1.5px] border-border bg-surface shadow-card">
         <div className="min-h-0 flex-1">
-          {/* 끝난 경로라 기본 `endMarker="finished"` 그대로다(`docs/ARCHITECTURE.md`). */}
-          <TancheonMap route={session.route} label={`${displayDate} 러닝 경로`} />
+          {/* 끝난 경로라 마커는 `finished` 다. 끝점이 Zone 안이면 파랑, 밖이면 회색이다. */}
+          <NaverTancheonMap
+            route={routePoints}
+            marker={
+              lastPoint
+                ? {
+                    lat: lastPoint.lat,
+                    lng: lastPoint.lng,
+                    kind: "finished",
+                    inZone: lastPoint.inZone,
+                  }
+                : null
+            }
+            zone={TANCHEON_ZONE}
+            label={`${displayDate} 러닝 경로`}
+          />
         </div>
 
         <div className="shrink-0 border-t border-surface-muted px-[18px] pt-2 pb-2.5">
-          <RouteLegend hasZone={session.tancheonDistanceKm > 0} />
+          <RouteLegend hasZone={session.tancheonDistanceM > 0} />
         </div>
       </div>
 
