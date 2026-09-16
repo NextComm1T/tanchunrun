@@ -65,9 +65,13 @@ type MapOptions = {
   zoomControl?: boolean;
 };
 
+export type NaverLatLngBounds = unknown;
+
 export type NaverMap = {
   setCenter(latlng: NaverLatLng): void;
   panTo(latlng: NaverLatLng, options?: { duration?: number }): void;
+  /** 경로 전체가 보이도록 중심 · 확대를 한 번에 맞춘다. */
+  fitBounds(bounds: NaverLatLngBounds, margin?: number): void;
   getZoom(): number;
   setZoom(zoom: number, useEffect?: boolean): void;
   destroy(): void;
@@ -114,6 +118,7 @@ export type NaverMapsNamespace = {
   Map: new (element: HTMLElement, options: MapOptions) => NaverMap;
   LatLng: new (lat: number, lng: number) => NaverLatLng;
   Point: new (x: number, y: number) => NaverPoint;
+  LatLngBounds: new (sw: NaverLatLng, ne: NaverLatLng) => NaverLatLngBounds;
   Marker: new (options: MarkerOptions) => NaverOverlay;
   Polyline: new (options: PolylineOptions) => NaverOverlay;
   Polygon: new (options: PolygonOptions) => NaverOverlay;

@@ -157,10 +157,18 @@ function splitBySegment(route: readonly RoutePoint[]): RoutePoint[][] {
 }
 
 /**
- * 한 구간을 Zone 안 · 밖으로 쪼갠다(legacy `splitByZone` 과 같은 동작 · R11).
+ * 한 구간을 Zone 안 · 밖으로 쪼갠다(R11).
  *
- * `inZone` 이 바뀌는 점은 **앞뒤 선이 함께 갖는다** — 그래야 색이 그 점에서 정확히 갈린다.
- * 경계점 자체를 만드는 계산은 `measure()`(#82)가 이미 했다.
+ * **색은 점이 아니라 구간(leg)이 정한다.** `measure()`(#82)가 경계를 지나는 자리마다 경계점을
+ * 이미 넣어 줬으므로 모든 leg 는 통째로 안이거나 통째로 밖이다. 그 leg 가 안인지는
+ * `from.inZone && to.inZone` 이다 — 경계점은 `inZone: true` 라서 「Zone 안 점 → 경계점」은
+ * 안이 되고 「경계점 → Zone 밖 점」은 밖이 된다.
+ *
+ * 점 하나의 `inZone` 으로 칠하면 **경계점 다음 leg 가 Zone 안 색으로 새어 나간다.**
+ * legacy `TancheonMap` 은 경계점을 화면이 직접 만들어 넣는 mock 좌표 모델이라 그 방식이
+ * 맞았지만, `measure()` 의 출력에는 그대로 옮길 수 없다.
+ *
+ * 색이 바뀌는 자리의 점은 앞뒤 선이 함께 갖는다 — 그래야 선이 끊겨 보이지 않는다.
  *
  * P9 로 거리에서 빠진 구간(`excludedFromPrevReason`)은 **일반 구간과 같은 스타일로 그린다**
  * (`docs/05-policy.md:22`). 그래서 여기서 따로 보지 않는다.
@@ -169,17 +177,20 @@ function splitByZone(run: readonly RoutePoint[]): ZoneLine[] {
   const lines: ZoneLine[] = [];
   if (run.length < 2) return lines;
 
-  let current: ZoneLine = { points: [run[0]], inZone: run[0].inZone };
+  let current: ZoneLine | null = null;
   for (let i = 1; i < run.length; i++) {
-    const point = run[i];
-    current.points.push(point);
-    if (point.inZone !== current.inZone) {
-      lines.push(current);
-      current = { points: [point], inZone: point.inZone };
+    const from = run[i - 1];
+    const to = run[i];
+    const inZone = from.inZone && to.inZone;
+
+    if (current && current.inZone === inZone) {
+      current.points.push(to);
+      continue;
     }
+
+    current = { points: [from, to], inZone };
+    lines.push(current);
   }
-  // 마지막 점에서 Zone 이 바뀌면 점 하나짜리가 남는다. 선이 되지 않으므로 버린다.
-  if (current.points.length > 1) lines.push(current);
 
   return lines;
 }
@@ -251,6 +262,8 @@ export function NaverTancheonMap({
 
   /** camera follow 는 내부 동작이다(D10) — props 를 늘리지 않는다. */
   const followRef = useRef(true);
+  /** 경로에 맞춘 초기 프레이밍을 이미 했는지. 지도 인스턴스당 한 번뿐이다. */
+  const didFitRef = useRef(false);
   const lastPanAtRef = useRef(0);
   /** 우리가 스스로 움직이는 중인지. 사용자 제스처와 구분해 follow 를 끄지 않는다. */
   const selfMoveRef = useRef(false);
@@ -396,7 +409,43 @@ export function NaverTancheonMap({
       );
     }
 
-    for (const run of splitBySegment(route ?? [])) {
+    /*
+      경로가 처음 들어오면 전체가 보이도록 한 번 맞춘다.
+
+      legacy 는 화면이 배율에서 `viewBox` 를 계산해 넘겼는데(`home/zoom.ts`), 실지도에는
+      그 좌표계가 없다. 그렇다고 `bounds` props 를 새로 뚫으면 #83 · #85 · #86 세 Issue 가
+      의존하는 계약이 늘어난다. camera follow 와 같은 급의 **내부 동작**으로 둔다.
+
+      한 번뿐이다 — 러닝 중에 점이 쌓일 때마다 다시 맞추면 화면이 계속 튄다. 그 뒤로는
+      camera follow 가 현재 위치를 따라간다.
+    */
+    const points = route ?? [];
+    if (!didFitRef.current && points.length >= 2) {
+      didFitRef.current = true;
+      let minLat = Infinity;
+      let maxLat = -Infinity;
+      let minLng = Infinity;
+      let maxLng = -Infinity;
+      for (const p of points) {
+        if (p.lat < minLat) minLat = p.lat;
+        if (p.lat > maxLat) maxLat = p.lat;
+        if (p.lng < minLng) minLng = p.lng;
+        if (p.lng > maxLng) maxLng = p.lng;
+      }
+      selfMoveRef.current = true;
+      map.fitBounds(
+        new maps.LatLngBounds(
+          new maps.LatLng(minLat, minLng),
+          new maps.LatLng(maxLat, maxLng),
+        ),
+        24,
+      );
+      window.setTimeout(() => {
+        selfMoveRef.current = false;
+      }, 0);
+    }
+
+    for (const run of splitBySegment(points)) {
       for (const line of splitByZone(run)) {
         const style = line.inZone ? LINE_IN : LINE_OUT;
         overlaysRef.current.push(
