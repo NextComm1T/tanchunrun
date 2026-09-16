@@ -44,6 +44,19 @@ export function issuerFor(provider: AuthProvider): URL {
   return new URL(PROVIDER_ISSUERS[provider]);
 }
 
+/**
+ * #79 · D2 가 정한 **서버 전용 env 6개**. 전부 서버에서만 읽고 `NEXT_PUBLIC_` 으로 옮기지 않는다.
+ * 시작 시 존재 검사(`assertStartupEnv`)와 `.env.example` 이 같은 목록을 본다.
+ */
+export const REQUIRED_SERVER_ENV = [
+  "DATABASE_URL",
+  "APP_ORIGIN",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "KAKAO_CLIENT_ID",
+  "KAKAO_CLIENT_SECRET",
+] as const;
+
 export type AuthEnv = {
   appOrigin: URL;
   /** `APP_ORIGIN` 이 https 인가. cookie 의 Secure · `__Host-` prefix 를 이걸로 정한다. */
@@ -114,6 +127,27 @@ export function readAuthEnv(): AuthEnv {
   };
 
   return cached;
+}
+
+/**
+ * **서버 시작 시 한 번** 부른다(`src/instrumentation.ts`). #79 의 "시작 시 누락 fail-fast" 다.
+ *
+ * - 6개 env 의 **존재만** 본다. 값은 읽어도 어디에도 내보내지 않고, 오류 메시지에도 **이름만** 넣는다.
+ * - **DB 에 접속하지 않고 migration 도 돌리지 않는다.** `DATABASE_URL` 은 설정 여부만 본다.
+ * - `readAuthEnv()` 를 이어서 불러 `APP_ORIGIN` 의 형식 · 프로토콜 규칙까지 시작 시 걸러 낸다.
+ *   결과가 캐시되므로 첫 요청이 이걸 다시 계산하지 않는다.
+ *
+ * `register()` 는 `next build` 에서는 돌지 않으므로, 이 검사가 있어도 env · DB 없이 빌드된다.
+ * 첫 사용 시점 검사(`readAuthEnv` · `getDb`)는 defense-in-depth 로 그대로 둔다 —
+ * instrumentation 이 없는 실행 경로에서도 조용히 통과하면 안 되기 때문이다.
+ */
+export function assertStartupEnv(): void {
+  const missing = REQUIRED_SERVER_ENV.filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required env: ${missing.join(", ")}`);
+  }
+
+  readAuthEnv();
 }
 
 /**
