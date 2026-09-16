@@ -7,9 +7,13 @@
 
 ## 기술 스택
 
-Next.js 16 (App Router · Turbopack) · React 19 · TypeScript · Tailwind CSS v4.
+화면 — Next.js 16 (App Router · Turbopack) · React 19 · TypeScript · Tailwind CSS v4.
 
-라이브러리는 아직 이 넷뿐이다. **추가하려면 먼저 팀에 말한다** — `package.json` 은 전원이 공유하는 파일이다.
+서버 — PostgreSQL 17 · `drizzle-orm`(`pg` driver) · `drizzle-kit` · `openid-client`(OIDC).
+
+**추가하려면 먼저 팀에 말한다** — `package.json` 은 전원이 공유하는 파일이다. 스택은 #78 의 결정
+ledger(D2 · D3-A)가 정본이고, 버전은 `~` 로 patch line 에 고정돼 있다. minor · major 를 올리는 것도
+결정을 바꾸는 일이라 임의로 하지 않는다.
 
 ## 폴더 구조
 
@@ -19,21 +23,52 @@ src/
 │  ├─ layout.tsx           모든 화면 공통. 화면별 UI 를 넣지 않는다
 │  ├─ globals.css          디자인 토큰. 건드리기 전에 팀에 말한다
 │  ├─ page.tsx             /  → 첫 화면 분기 자리
-│  └─ login/               /login
-│     ├─ page.tsx
-│     ├─ LoginHero.tsx         ← 이 화면에서만 쓰는 조각은 같은 폴더에
-│     └─ SocialLoginButtons.tsx
-└─ components/shared/      여러 화면이 쓰는 것만
-   ├─ AppShell.tsx
-   ├─ Header.tsx
-   ├─ BackButton.tsx
-   ├─ BottomNav.tsx        홈 3개 탭 하단 탭바 (#34)
-   └─ TancheonMap.tsx      탄천 지도 (#33)
+│  ├─ login/               /login
+│  │  ├─ page.tsx
+│  │  ├─ LoginHero.tsx         ← 이 화면에서만 쓰는 조각은 같은 폴더에
+│  │  └─ SocialLoginButtons.tsx
+│  └─ api/auth/            OAuth route 4개 (#79). 화면이 아니다
+│     ├─ google/start/route.ts · google/callback/route.ts
+│     └─ kakao/start/route.ts  · kakao/callback/route.ts
+├─ components/shared/      여러 화면이 쓰는 것만
+│  ├─ AppShell.tsx
+│  ├─ Header.tsx
+│  ├─ BackButton.tsx
+│  ├─ BottomNav.tsx        홈 3개 탭 하단 탭바 (#34)
+│  └─ TancheonMap.tsx      탄천 지도 (#33)
+└─ server/                 서버에서만 도는 코드 (#79)
+   ├─ db/                  schema.ts · client.ts
+   └─ auth/                config · providers · session · identity · handlers · actions
 ```
 
 **규칙 하나로 줄이면**: 그 화면에서만 쓰면 화면 폴더 안에, 두 화면 이상이 쓰면 `components/shared/`.
 
 한 화면에서만 쓰는 조각을 `shared/` 에 올리지 않는다. 지금은 정리돼 보여도 나중에 아무도 못 지운다.
+
+## `src/server` · `src/domain` 경계 (D12)
+
+| 폴더 | 무엇 | 규칙 |
+| --- | --- | --- |
+| `src/domain` | 프레임워크와 무관한 순수 TS. 계산 · 규칙 | React · Next · DB · env 를 import 하지 않는다. **아직 없다 — #82 가 만든다** |
+| `src/server` | 서버에서만 도는 코드. DB · 인증 · secret | 브라우저로 새어 나가면 안 된다 |
+
+**import 방향은 한쪽뿐이다.**
+
+```
+server  →  domain     허용
+domain  →  server     금지
+```
+
+`domain` 이 `server` 를 부르기 시작하면 순수 TS 라는 전제가 깨지고 테스트할 수 없게 된다.
+
+`src/server` 아래 모듈은 **`import "server-only";` 로 시작한다.** 클라이언트 컴포넌트가 실수로
+가져다 쓰면 빌드가 거기서 깨진다. 예외 둘:
+
+- `"use server"` 가 붙은 server action 파일 — Next 가 이미 클라이언트 번들에서 빼낸다.
+- `src/server/db/schema.ts` — `drizzle-kit` CLI 가 Next 밖에서 이 파일을 읽는데 `server-only` 를
+  해석하지 못한다. 테이블 정의뿐이라 secret 이 없고, 실제로 DB 에 닿는 `client.ts` 가 막아 준다.
+
+`server-only` 는 **설치하지 않는다.** Next 가 내부적으로 처리하므로 package 가 필요 없다.
 
 ## 공용 컴포넌트
 
@@ -213,8 +248,36 @@ import heroOtter from "@assets/otter-hero-wide-v2.png";
 
 예시: [modify/2026-09-14.md](../modify/2026-09-14.md)
 
+## 인증 (#79)
+
+카카오 · 구글 OIDC 로그인이 붙어 있다. 화면을 만들 때 알아야 할 것만 적는다.
+
+**현재 사용자를 알고 싶을 때** — `getViewer()` 하나만 쓴다.
+
+```tsx
+import { getViewer } from "@/server/auth/session";
+
+const viewer = await getViewer();   // { userId, accountState, nickname, provider } | null
+```
+
+- 서버에서만 부른다. **client 가 보낸 userId 를 믿지 않는다** — 서버 함수는 항상 세션에서 얻는다.
+- `null` 이면 로그아웃이다. `accountState` 는 `signing_up`(닉네임 미설정) 또는 `active`.
+- `hasActiveRun` 은 아직 없다. #81 이 기존 필드를 바꾸지 않고 **덧붙인다**.
+
+**로그아웃** — `signOut()`(server action)이 현재 기기 세션 행을 지우고 쿠키를 지운다.
+`{ ok: true } | { ok: false, error: "failed" }` 를 돌려주므로, **`ok` 일 때만 화면을 옮긴다.**
+실패했는데 로그인 화면으로 보내면 세션이 살아 있는 채로 로그아웃한 것처럼 보인다.
+
+**세션 수명** — 발급 후 **고정 30일**이다. 써도 연장되지 않고(rolling 없음) 30일이 지나면 재로그인이다.
+기획 문서의 "로그아웃 전까지 유지" 와 다른 지점이라 `modify/2026-09-16-auth.md` 에 적어 뒀다.
+
+**카카오와 구글은 이어지지 않는다** — 같은 사람이어도 UID 가 둘이다(P11). email 로 계정을 잇는
+코드를 두지 않는다. 애초에 **이메일 · 프로필 · OAuth token 을 저장하지 않는다**(SP3).
+
+실행에 필요한 것(로컬 PostgreSQL · `.env.local` · migration)은 [PROJECT_COMMANDS.md](./PROJECT_COMMANDS.md).
+
 ## 아직 없는 것
 
-- **인증** — 카카오·구글 OAuth 미연동. 로그인 버튼은 눌러도 아무 일도 일어나지 않는다. `layout.tsx` · `page.tsx` · middleware 를 건드리는 **공유 인프라**라 화면 브랜치에 섞으면 전원과 충돌한다. 별도 트랙으로 한 사람이 맡는다.
-- **API · 데이터** — 서버가 없다. 화면은 mock 데이터로 만든다.
+- **첫 화면 분기 · 가입 흐름** — `/` 는 여전히 `/login` 으로만 보낸다. 로그인 상태 · 가입 중 여부에 따른 분기와 동의 · 닉네임 저장은 #80 이 한다. `layout.tsx` · 루트 `page.tsx` 는 **공유 인프라**라 화면 브랜치에서 건드리지 않는다.
+- **API · 데이터** — 인증 밖의 서버는 아직 없다. 러닝 · 랭킹 · 기록 화면은 mock 데이터로 만든다.
 - **테스트 러너** — `npm test` 없음.

@@ -1,7 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+
+import { signOut } from "@/server/auth/actions";
 
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ROW_CLASS, ROW_DIVIDER_CLASS, RowChevron } from "./SettingsRow";
@@ -16,15 +18,25 @@ import { ROW_CLASS, ROW_DIVIDER_CLASS, RowChevron } from "./SettingsRow";
 export function LogoutRow() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [pending, startTransition] = useTransition();
 
   function handleConfirm() {
     setOpen(false);
+    setFailed(false);
 
-    // TODO(F12 · R25): 인증이 붙으면 여기서 실제 세션을 지운다.
-    // 지금은 지울 세션이 없어 로그인 화면으로 보내기만 한다 —
-    // 가짜 성공 안내나 가짜 실패로 흉내내지 않는다(`SocialLoginButtons.tsx` 와 같은 방침).
-    // push 가 아니라 replace 라서 뒤로 가기로 설정 화면에 되돌아오지 않는다.
-    router.replace("/login");
+    startTransition(async () => {
+      const result = await signOut();
+
+      if (!result.ok) {
+        // 세션이 그대로 살아 있다. 이동하면 로그아웃된 것처럼 보이는 가짜 성공이 된다.
+        setFailed(true);
+        return;
+      }
+
+      // push 가 아니라 replace 라서 뒤로 가기로 설정 화면에 되돌아오지 않는다.
+      router.replace("/login");
+    });
   }
 
   return (
@@ -32,13 +44,27 @@ export function LogoutRow() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={`${ROW_CLASS} py-[17px]`}
+        disabled={pending}
+        className={`${ROW_CLASS} py-[17px] disabled:opacity-60`}
       >
         <span className="text-base font-bold text-foreground">로그아웃</span>
         <span className="flex shrink-0 items-center text-disabled">
           <RowChevron />
         </span>
       </button>
+
+      {/*
+        로그아웃 실패 안내. 디자인에 없는 요소지만 #79 가 「실패 시 오류 표시 · 로그인 유지」를
+        요구한다(`modify/2026-09-16-auth.md` 5번). 로그인 화면의 실패 안내와 같은 토큰을 쓴다.
+      */}
+      {failed ? (
+        <p
+          role="alert"
+          className="mx-5 mb-4 rounded-md border-[1.5px] border-error-border bg-error-soft px-4 py-3 text-sm font-bold text-error"
+        >
+          로그아웃하지 못했습니다. 잠시 후 다시 시도해주세요.
+        </p>
+      ) : null}
 
       <ConfirmDialog
         open={open}
