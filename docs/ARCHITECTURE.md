@@ -61,14 +61,15 @@ domain  →  server     금지
 
 `domain` 이 `server` 를 부르기 시작하면 순수 TS 라는 전제가 깨지고 테스트할 수 없게 된다.
 
-`src/server` 아래 모듈은 **`import "server-only";` 로 시작한다.** 클라이언트 컴포넌트가 실수로
-가져다 쓰면 빌드가 거기서 깨진다. 예외 둘:
-
-- `"use server"` 가 붙은 server action 파일 — Next 가 이미 클라이언트 번들에서 빼낸다.
-- `src/server/db/schema.ts` — `drizzle-kit` CLI 가 Next 밖에서 이 파일을 읽는데 `server-only` 를
-  해석하지 못한다. 테이블 정의뿐이라 secret 이 없고, 실제로 DB 에 닿는 `client.ts` 가 막아 준다.
+`src/server` 아래 모듈은 **예외 없이 `import "server-only";` 로 시작한다.** 클라이언트 컴포넌트가
+실수로 가져다 쓰면 빌드가 거기서 깨진다. 유일한 예외는 `"use server"` 가 붙은 server action
+파일인데, 그건 Next 가 이미 클라이언트 번들에서 빼내기 때문이다.
 
 `server-only` 는 **설치하지 않는다.** Next 가 내부적으로 처리하므로 package 가 필요 없다.
+
+`drizzle-kit` 은 Next 밖에서 도는 CLI 라 그 처리를 모른다. 그래서 `schema.ts` 를 읽다가
+`Cannot find module 'server-only'` 로 죽는데, `drizzle.config.ts` 가 **그 설정 파일 안에서만**
+resolver 를 감싸 해결해 둔다. Next 는 이 설정 파일을 읽지 않으므로 앱 쪽 처리는 그대로다.
 
 ## 공용 컴포넌트
 
