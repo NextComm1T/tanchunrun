@@ -8,6 +8,8 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -40,6 +42,14 @@ export const ACCOUNT_STATES = ["signing_up", "active"] as const;
 export type AccountState = (typeof ACCOUNT_STATES)[number];
 
 /**
+ * 저장되는 동의 종류(#80 · D5). **단일 required 타입 하나뿐이다** — optional 항목도,
+ * 그 밖의 `consent_type` 도 만들지 않는다. 문구 · 버전 상수는 화면 쪽
+ * `src/app/signup/consent/consentSections.ts` 에 있다(D5 가 고지 문구 옆에 두라고 정했다).
+ */
+export const CONSENT_TYPES = ["privacy_collection_use"] as const;
+export type ConsentType = (typeof CONSENT_TYPES)[number];
+
+/**
  * CHECK 제약에 쓸 `'a', 'b'` 목록. 허용값이 위 상수 배열 한 곳에서만 나오게 한다.
  *
  * `sql`${value}`` 로 쓰면 안 된다 — 그건 bind parameter 가 돼서 생성된 DDL 에
@@ -54,7 +64,9 @@ function inList(values: readonly string[]) {
  * 불변 UID. 한 번 발급되면 바뀌지 않고, 탈퇴 후 재가입해도 재사용하지 않는다
  * (`docs/06-data.md:14` · P13).
  *
- * `nickname` 은 여기서 null 을 허용만 하고 규칙 · unique index 는 #80 이 넣는다.
+ * `nickname` 은 가입 중에는 null 이고 #80 이 채운다. 길이 · 문자 규칙은 `src/domain/nickname.ts`
+ * 가 갖고, **중복만 DB 가 막는다** — 앱이 먼저 SELECT 해서 판정하면 두 브라우저가 동시에
+ * 제출했을 때 둘 다 통과한다.
  */
 export const users = pgTable(
   "users",
@@ -71,6 +83,59 @@ export const users = pgTable(
     check(
       "users_account_state_check",
       sql`${table.accountState} in (${inList(ACCOUNT_STATES)})`,
+    ),
+    /**
+     * 닉네임 중복 금지. **영문 대소문자를 구분하지 않는다**(P10 · D4) — `Runner` 와 `runner`
+     * 는 같은 닉네임이다. 그래서 컬럼이 아니라 `lower(nickname)` 표현식에 unique 를 건다.
+     *
+     * 정규화 컬럼을 따로 두지 않는 이유는 그 컬럼과 `nickname` 이 어긋날 수 있기 때문이다.
+     * 표현식 index 는 어긋날 수가 없다. 값은 `domain/nickname.ts` 의 `normalizeNickname()`
+     * 과 같아야 하므로 양쪽 다 locale 에 의존하지 않는 소문자 변환을 쓴다.
+     *
+     * 가입 중(`nickname IS NULL`) 사용자는 서로 충돌하지 않는다 — Postgres 의 unique 는
+     * NULL 을 서로 다른 값으로 보기 때문에 부분 index 를 따로 쓸 필요가 없다.
+     */
+    uniqueIndex("users_nickname_lower_unique").on(sql`lower(${table.nickname})`),
+  ],
+);
+
+/**
+ * 개인정보 수집·이용 동의(#80 · D5).
+ *
+ * `UNIQUE(user_id, consent_type, version)` 이 **재동의를 idempotent 하게 만드는 장치**다.
+ * 두 탭 · 더블 클릭 · 네트워크 재시도로 같은 요청이 여러 번 와도 `ON CONFLICT DO NOTHING`
+ * 이 두 번째부터를 조용히 흘려보내고, 그래서 **최초 동의 시각(`agreed_at`)이 보존된다.**
+ *
+ * 없는 것과 그 이유:
+ * - **IP · User-Agent · 기기 식별자 없음** — SP3 범위 밖이고 MVP 최소 설계다.
+ * - **철회 · 이력 컬럼 없음** — 철회 UI 가 없고(#49 는 read-only), 탈퇴하면 `users` 에서
+ *   CASCADE 로 전부 지워진다(P13).
+ *
+ * `agreed_at` 에 DB default 를 걸지 않는다. **서버가 INSERT 시점 값을 명시적으로 넣는다** —
+ * client 가 보낸 시각을 신뢰하지 않는다는 것을 호출부에서 눈으로 확인할 수 있어야 한다.
+ */
+export const consents = pgTable(
+  "consents",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    consentType: text("consent_type").notNull(),
+    /** 고지 문구의 버전. 코드 상수(`PRIVACY_CONSENT_VERSION`)를 그대로 넣는다. */
+    version: text("version").notNull(),
+    agreedAt: timestamp("agreed_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("consents_user_id_idx").on(table.userId),
+    unique("consents_user_type_version_unique").on(
+      table.userId,
+      table.consentType,
+      table.version,
+    ),
+    check(
+      "consents_consent_type_check",
+      sql`${table.consentType} in (${inList(CONSENT_TYPES)})`,
     ),
   ],
 );

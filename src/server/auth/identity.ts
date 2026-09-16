@@ -3,6 +3,7 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 
 import { getDb } from "@/server/db/client";
+import { isUniqueViolation } from "@/server/db/errors";
 import { oauthAccounts, users } from "@/server/db/schema";
 
 import { createSession } from "./session";
@@ -18,18 +19,6 @@ import type { AuthProvider } from "./config";
  * 조회 · 생성 · 세션 발급이 **한 transaction** 이다. 중간에 실패하면 user · account · session
  * 어느 것도 남지 않고, cookie 도 붙지 않는다(가짜 성공 없음).
  */
-
-/** PostgreSQL unique_violation. 같은 계정으로 최초 로그인 2건이 동시에 들어온 경우다. */
-const UNIQUE_VIOLATION = "23505";
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === UNIQUE_VIOLATION
-  );
-}
 
 export type SignInResult = {
   userId: string;
