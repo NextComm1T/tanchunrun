@@ -72,11 +72,27 @@ export async function createSession(
  * 이 Issue 에서 미리 만들거나 고정값을 넣지 않는다.
  */
 export async function getViewer(): Promise<Viewer | null> {
-  const { secureCookies } = readAuthEnv();
+  // `cookies()` 를 **가장 먼저** 부른다. 이 호출이 「이 화면은 요청마다 그린다」는 표시라서,
+  // 정적 생성 중이면 여기서 빠져나간다. env 를 먼저 읽으면 그 전에 누락 오류가 나서
+  // `npm run build` 가 env · DB 없이 통과해야 한다는 요구(#79)가 깨진다.
   const store = await cookies();
+  const { secureCookies } = readAuthEnv();
   const rawToken = store.get(sessionCookieName(secureCookies))?.value;
   if (!rawToken) return null;
 
+  return readViewerByToken(rawToken);
+}
+
+/**
+ * raw token 하나로 viewer 를 찾는다. `getViewer()` 의 조회 부분이다.
+ *
+ * 따로 꺼내 둔 이유는 **`proxy.ts` 때문**이다. proxy 는 `next/headers` 의 `cookies()` 를 쓸 수
+ * 없고 `request.cookies` 에서 값을 직접 꺼내므로, cookie 를 읽는 부분과 DB 를 보는 부분이
+ * 나뉘어 있어야 한다. 해시 계산과 만료 검사를 두 벌로 만들지 않으려는 것이다.
+ */
+export async function readViewerByToken(
+  rawToken: string,
+): Promise<Viewer | null> {
   const rows = await getDb()
     .select({
       userId: users.id,

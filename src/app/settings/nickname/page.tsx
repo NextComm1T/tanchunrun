@@ -1,5 +1,8 @@
+import { redirect } from "next/navigation";
+
 import { AppShell } from "@/components/shared/AppShell";
 import { Header } from "@/components/shared/Header";
+import { getViewer } from "@/server/auth/session";
 
 import { NicknameEditForm } from "./NicknameEditForm";
 
@@ -14,15 +17,13 @@ import { NicknameEditForm } from "./NicknameEditForm";
  * 디자인과 문서가 갈리는 지점은 modify/2026-09-14-settings-nickname.md 에 있다.
  */
 
-/**
- * 현재 저장된 닉네임 mock(디자인 L1173 의 기본값).
- *
- * TODO(F10 · R15): 인증이 붙으면 로그인 세션의 「사용자 · 닉네임」을 읽는다.
- * 서버가 없어 고정값이며, 값을 기다리는 「불러오는 중」 상태도 아직 없다.
- */
-const CURRENT_NICKNAME = "뚝심주자";
+export default async function SettingsNicknamePage() {
+  const viewer = await getViewer();
 
-export default function SettingsNicknamePage() {
+  // 닉네임이 있다는 것은 가입을 마쳤다는 뜻이다. 아직이면 루트가 가입 흐름으로 돌려보낸다.
+  if (!viewer) redirect("/login");
+  if (!viewer.nickname) redirect("/");
+
   return (
     <AppShell
       header={
@@ -40,7 +41,7 @@ export default function SettingsNicknamePage() {
         />
       }
     >
-      <NicknameEditForm currentNickname={CURRENT_NICKNAME} />
+      <NicknameEditForm currentNickname={viewer.nickname} />
     </AppShell>
   );
 }
