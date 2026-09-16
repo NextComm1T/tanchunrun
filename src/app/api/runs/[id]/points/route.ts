@@ -1,0 +1,179 @@
+import { readAuthEnv } from "@/server/auth/config";
+import { getViewer } from "@/server/auth/session";
+import {
+  appendPoints,
+  type IncomingPoint,
+} from "@/server/runs/points";
+import {
+  POINTS_MAX_BODY_BYTES,
+  POINTS_MAX_PER_REQUEST,
+} from "@/server/runs/policy";
+
+/** Node.js runtime 이 필요하다 — `node:crypto`(token 해시)와 `pg` 를 쓴다. */
+export const runtime = "nodejs";
+/** 요청마다 DB 를 본다. 정적 최적화 대상이 아니다. */
+export const dynamic = "force-dynamic";
+
+/**
+ * GPS 측정점 업로드(#83 · D1 · D11 · D14).
+ *
+ * 검증은 전부 서버에서 한다 — 화면이 버튼을 막는 것을 인가로 치지 않는다. 좌표와 token 값은
+ * 응답 · 로그 어디에도 남기지 않고, 문제가 있으면 **어느 `rawSeq` 인지만** 알려 준다.
+ */
+
+type ErrorBody = { error: string; rawSeq?: number };
+
+function fail(status: number, body: ErrorBody, headers?: HeadersInit) {
+  return Response.json(body, { status, headers });
+}
+
+/**
+ * client 가 보낸 배열을 믿지 않고 형태를 다시 본다.
+ *
+ * 하나라도 형태가 틀리면 배열 전체를 거절한다 — 일부만 받으면 `rawSeq` 가 듬성해져
+ * ACK 가 영영 전진하지 못한다.
+ */
+function parsePoints(value: unknown): IncomingPoint[] | null {
+  if (!Array.isArray(value)) return null;
+
+  const points: IncomingPoint[] = [];
+
+  for (const raw of value) {
+    if (typeof raw !== "object" || raw === null) return null;
+
+    const { rawSeq, segment, lat, lng, recordedAt, accuracy } = raw as Record<
+      string,
+      unknown
+    >;
+
+    if (
+      !Number.isInteger(rawSeq) ||
+      (rawSeq as number) < 1 ||
+      !Number.isInteger(segment) ||
+      (segment as number) < 0 ||
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      Math.abs(lat as number) > 90 ||
+      Math.abs(lng as number) > 180 ||
+      !Number.isFinite(recordedAt)
+    ) {
+      return null;
+    }
+
+    if (
+      accuracy !== undefined &&
+      accuracy !== null &&
+      !Number.isFinite(accuracy)
+    ) {
+      return null;
+    }
+
+    points.push({
+      rawSeq: rawSeq as number,
+      segment: segment as number,
+      lat: lat as number,
+      lng: lng as number,
+      recordedAt: recordedAt as number,
+      accuracy: typeof accuracy === "number" ? accuracy : null,
+    });
+  }
+
+  return points;
+}
+
+export async function POST(
+  request: Request,
+  context: RouteContext<"/api/runs/[id]/points">,
+) {
+  /*
+    same-origin 검사(D1 — MVP 는 Web-only). 브라우저는 cross-site POST 에 다른 Origin 을
+    붙이므로 여기서 걸린다. cookie 인증이라 이 검사가 CSRF 방어의 한 겹이다.
+  */
+  const origin = request.headers.get("origin");
+  if (origin !== readAuthEnv().appOrigin.origin) {
+    return fail(403, { error: "forbidden_origin" });
+  }
+
+  /*
+    크기부터 본다. DB 를 건드리지 않는 검사라 rate-limit 행을 읽지도 소비하지도 않는다 —
+    「인증 · 인가 전에는 bucket 을 건드리지 않는다」는 규칙을 깨지 않는다.
+  */
+  const body = await request.text();
+  if (new TextEncoder().encode(body).length > POINTS_MAX_BODY_BYTES) {
+    return fail(413, { error: "payload_too_large" });
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return fail(400, { error: "invalid_body" });
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    return fail(400, { error: "invalid_body" });
+  }
+
+  const { trackerToken, trackerGeneration, points } = parsed as Record<
+    string,
+    unknown
+  >;
+
+  if (
+    typeof trackerToken !== "string" ||
+    trackerToken.length === 0 ||
+    !Number.isInteger(trackerGeneration) ||
+    (trackerGeneration as number) < 1
+  ) {
+    return fail(400, { error: "invalid_body" });
+  }
+
+  const parsedPoints = parsePoints(points);
+  if (!parsedPoints) return fail(400, { error: "invalid_body" });
+
+  if (parsedPoints.length > POINTS_MAX_PER_REQUEST) {
+    // client 는 점을 버리지 않는다 — 버퍼를 줄여 다시 보낸다.
+    return fail(413, { error: "too_many_points" });
+  }
+
+  // ① 인증.
+  const viewer = await getViewer();
+  if (!viewer) return fail(401, { error: "unauthenticated" });
+
+  const { id: sessionId } = await context.params;
+
+  const outcome = await appendPoints({
+    sessionId,
+    userId: viewer.userId,
+    trackerToken,
+    trackerGeneration: trackerGeneration as number,
+    points: parsedPoints,
+    now: new Date(),
+  });
+
+  if (outcome.ok) {
+    return Response.json({ ackThroughRawSeq: outcome.ackThroughRawSeq });
+  }
+
+  switch (outcome.error) {
+    case "not_tracker":
+      return fail(403, { error: "not_tracker" });
+    case "tracker_superseded":
+      return fail(409, { error: "tracker_superseded" });
+    case "point_conflict":
+      return fail(409, { error: "point_conflict", rawSeq: outcome.rawSeq });
+    case "invalid_recorded_at":
+      return fail(400, {
+        error: "invalid_recorded_at",
+        rawSeq: outcome.rawSeq,
+      });
+    case "rate_limited":
+      return fail(
+        429,
+        { error: "rate_limited" },
+        { "Retry-After": String(outcome.retryAfterSec) },
+      );
+    default:
+      return fail(500, { error: "failed" });
+  }
+}

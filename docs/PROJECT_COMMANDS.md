@@ -32,7 +32,7 @@ provider 에 등록된 callback 주소가 어긋나서 로그인이 실패한다
 | `npm run build` | 프로덕션 빌드 | **TypeScript 타입 검사 포함**. 타입 오류는 여기서 잡힌다 |
 | `npm run start` | 빌드 결과 실행 | `build` 를 먼저 돌려야 한다 |
 | `npm run lint` | ESLint (`eslint-config-next`) | 출력이 없으면 위반 0 |
-| `npm test` | Vitest (`vitest run`) | **`src/domain` 의 순수 함수만** 돈다. 화면은 대상이 아니다 |
+| `npm test` | Vitest (`vitest run`) | **순수 함수만** 돈다. 화면 · DB · 네트워크는 대상이 아니다 |
 | `npm run db:generate` | schema 변경 → migration SQL 생성 | DB 에 접속하지 않는다 |
 | `npm run db:migrate` | migration 을 DB 에 적용 | `DATABASE_URL` 이 필요하다 |
 
@@ -98,10 +98,15 @@ lint · build 는 통과해야 한다. `build` 가 타입 검사를 겸하므로
 
 ## `npm test` 가 덮는 범위
 
-`npm test` 는 **`src/domain/**/*.test.ts` 만** 실행한다(`vitest.config.mts`). 거리 · Zone · 페이스 같은
-계산 규칙처럼 화면 없이 값만으로 판정할 수 있는 것이 대상이다.
+`npm test` 는 **`src/**/*.test.ts`** 를 실행한다(`vitest.config.mts`). 대상은 경로가 아니라 성격으로
+정해진다 — 거리 · Zone · 페이스 계산(`src/domain/measure`), 업로드 ACK 규칙(`src/server/runs/ack.ts`)
+처럼 **화면 · DB · 네트워크 없이 값만으로 판정할 수 있는 순수 함수**다.
 
-**화면에는 여전히 테스트 러너가 없다.** `src/app` 의 검증은 lint · build · 브라우저 확인 세 가지뿐이다.
+`import "server-only"` 가 붙은 모듈은 Next 밖에서 import 하는 순간 던지므로 테스트할 수 없다.
+검증하고 싶은 규칙이 있으면 그 규칙만 순수 모듈로 떼어 낸다(`ack.ts` 가 그 예다).
+
+**화면에는 여전히 테스트 러너가 없다.** `src/app` 의 검증은 lint · build · 브라우저 확인 세 가지뿐이고,
+DB 를 실제로 때리는 경로(route handler · migration 적용)도 자동 테스트가 아니라 수동 확인 대상이다.
 
 PR 에 "테스트 완료"라고 적지 않는다. 실제로 한 것만 적는다 (`CONTRIBUTING.md` 8. 금지) —
 `npm test` 를 돌렸으면 그 결과를, 브라우저로 본 것은 브라우저로 봤다고 적는다.

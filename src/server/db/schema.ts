@@ -2,10 +2,13 @@ import "server-only";
 
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   date,
+  doublePrecision,
   index,
   integer,
+  numeric,
   pgTable,
   primaryKey,
   text,
@@ -298,6 +301,135 @@ export const authSessions = pgTable(
     check(
       "auth_sessions_provider_check",
       sql`${table.provider} in (${inList(AUTH_PROVIDERS)})`,
+    ),
+  ],
+);
+
+/**
+ * 경로 지점의 종류(#83 · `docs/06-data.md` 「지점 종류」).
+ *
+ * `measured` 는 GPS 가 실제로 준 점이고, `boundary` 는 Zone 경계에서 계산해 끼워 넣는
+ * 점이다. **`measured` 는 저장된 뒤 바뀌지 않는다** — 파생 필드(`in_zone` ·
+ * `excluded_from_prev_reason`)와 `boundary` 행은 종료 처리(#85)가 채운다.
+ */
+export const ROUTE_POINT_KINDS = ["measured", "boundary"] as const;
+export type RoutePointKind = (typeof ROUTE_POINT_KINDS)[number];
+
+/** 구간이 거리 계산에서 빠진 사유(#83 · P9). 현재 값은 속도 초과 하나뿐이다. */
+export const EXCLUDED_FROM_PREV_REASONS = ["speed"] as const;
+export type ExcludedFromPrevReason = (typeof EXCLUDED_FROM_PREV_REASONS)[number];
+
+/**
+ * GPS 이동 경로(#83 · D11 · P2 · P9).
+ *
+ * **키가 `(session_id, tracker_generation, raw_seq, ordinal)` 인 것이 계약의 핵심이다.**
+ * `raw_seq` 는 generation 마다 1 부터 다시 시작하므로(D11) generation 없이는 유일하지 않다.
+ * 같은 키로 **같은 payload** 가 다시 오면 멱등하게 성공하고, 하나라도 다르면 기존 값을
+ * 유지한 채 `point_conflict` 로 거절한다 — 저장된 raw 측정점을 덮어쓰지 않는다.
+ *
+ * `ordinal` 은 측정점이 0, 그 점과 다음 측정점 사이의 경계점이 1 · 2 … 다. 정렬은 언제나
+ * `tracker_generation → raw_seq → ordinal` 이고 그 규칙은 `getOrderedRoutePoints` 가 쥔다.
+ *
+ * `lat` · `lng` 를 `double precision` 으로 두는 이유 — WGS84 계산(#82)이 JS `number` 로
+ * 돌아가므로 저장도 같은 정밀도여야 값이 왕복하면서 흔들리지 않는다.
+ */
+export const routePoints = pgTable(
+  "route_points",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => runSessions.id, { onDelete: "cascade" }),
+    trackerGeneration: integer("tracker_generation").notNull(),
+    /** generation 마다 1 부터. accept 된 fix 에만 붙어 조밀하다(D11). */
+    rawSeq: integer("raw_seq").notNull(),
+    /** 측정점 0, 그 뒤에 끼워 넣는 경계점 1 · 2 … */
+    ordinal: integer("ordinal").notNull().default(0),
+    kind: text("kind").notNull(),
+    /** GPS 가 끊긴 자리에서 갈린다. 번호가 다르면 선을 잇지 않는다(P2). */
+    segment: integer("segment").notNull(),
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
+    /** 기기가 측정한 시각. **서버가 clamp 하지 않는다** — 구간 판정이 이 차이를 쓴다. */
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+    accuracyM: doublePrecision("accuracy_m"),
+    /** Ranking Zone 내부 여부. #85 finalization 이 채운다. */
+    inZone: boolean("in_zone"),
+    /**
+     * 같은 generation · 같은 segment 의 **직전 measured 점 → 이 점** 구간의 제외 사유.
+     * 점 하나에 붙는 표시가 아니다. 경계점(ordinal ≥ 1)에는 넣지 않는다.
+     */
+    excludedFromPrevReason: text("excluded_from_prev_reason"),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.sessionId,
+        table.trackerGeneration,
+        table.rawSeq,
+        table.ordinal,
+      ],
+    }),
+    check("route_points_raw_seq_check", sql`${table.rawSeq} >= 1`),
+    check("route_points_ordinal_check", sql`${table.ordinal} >= 0`),
+    check("route_points_segment_check", sql`${table.segment} >= 0`),
+    check(
+      "route_points_kind_check",
+      sql`${table.kind} in (${inList(ROUTE_POINT_KINDS)})`,
+    ),
+    check(
+      "route_points_excluded_reason_check",
+      sql`${table.excludedFromPrevReason} is null or ${table.excludedFromPrevReason} in (${inList(EXCLUDED_FROM_PREV_REASONS)})`,
+    ),
+  ],
+);
+
+/** rate limit bucket 의 종류(#83 · D11). `finish` bucket 은 #85 가 같은 테이블에 쓴다. */
+export const RATE_LIMIT_KINDS = ["points", "finish"] as const;
+export type RateLimitKind = (typeof RATE_LIMIT_KINDS)[number];
+
+/**
+ * token bucket 저장소(#83 · D11).
+ *
+ * **왜 DB 인가** — Vercel serverless 에서 인스턴스 메모리 카운터는 인스턴스마다 따로 세므로
+ * 아무것도 제한하지 못한다. 용량 · 충전 속도 · 요청당 비용은 **코드 상수**(`policy.ts`)이고
+ * 이 테이블에는 남은 양과 마지막 갱신 시각만 둔다.
+ *
+ * 한 행은 **user 또는 session 중 하나**에 달린다(CHECK 이 강제). 조건부 유일성이라
+ * 일반 UNIQUE 로는 표현할 수 없어 partial unique index 두 개를 쓴다.
+ *
+ * FK 를 처음부터 CASCADE 로 두어 탈퇴(#88)가 `users` 를 지우면 함께 사라진다.
+ *
+ * **자원 보호이지 정확성 검사가 아니다.** 소유권 · generation · 시각 검증을 대신하지 않고,
+ * anti-cheat 도 아니다.
+ */
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    kind: text("kind").notNull(),
+    /** points bucket 의 키. **IP 가 아니라 user 다** — 모바일 NAT 에서 IP 는 공유된다. */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").references(() => runSessions.id, {
+      onDelete: "cascade",
+    }),
+    /** 남은 token. 충전이 소수로 쌓이므로 정수가 아니다. */
+    tokens: numeric("tokens").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("rate_limits_kind_user_unique")
+      .on(table.kind, table.userId)
+      .where(sql`${table.sessionId} is null`),
+    uniqueIndex("rate_limits_kind_session_unique")
+      .on(table.kind, table.sessionId)
+      .where(sql`${table.userId} is null`),
+    check(
+      "rate_limits_kind_check",
+      sql`${table.kind} in (${inList(RATE_LIMIT_KINDS)})`,
+    ),
+    check(
+      "rate_limits_subject_check",
+      sql`(${table.userId} is null) <> (${table.sessionId} is null)`,
     ),
   ],
 );
