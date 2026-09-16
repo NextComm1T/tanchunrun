@@ -46,3 +46,17 @@ export const POINTS_BUCKET_REFILL_PER_SECOND = 1;
 export function pointsBucketCost(pointCount: number): number {
   return 1 + Math.floor(pointCount / 100);
 }
+
+/**
+ * finish bucket(bucket B · #85 · D11). `finishRun` · `retryFinalization` 이 공유한다.
+ *
+ * key 는 `session_id` 다 — 한 세션을 끝내려는 시도 자체를 제한하는 것이라 `points` bucket과
+ * 달리 user 가 아니라 session 에 건다.
+ */
+export const FINISH_BUCKET_CAPACITY = 5;
+
+/** 3초에 하나씩 찬다. */
+export const FINISH_BUCKET_REFILL_PER_SECOND = 1 / 3;
+
+/** 요청 하나가 쓰는 token. `finishRun` 재시도든 `retryFinalization` 이든 언제나 1이다. */
+export const FINISH_BUCKET_COST = 1;

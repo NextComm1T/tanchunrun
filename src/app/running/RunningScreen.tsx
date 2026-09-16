@@ -125,7 +125,7 @@ export function RunningScreen({
         tancheonHighlighted={tracker.inZone && !gpsLost}
       />
 
-      <SlideToFinish />
+      <SlideToFinish sessionId={sessionId} onFinish={tracker.finish} />
     </>
   );
 }

@@ -9,6 +9,7 @@ import {
   maxBufferedRawSeq,
   readBufferedPoints,
   readFinishIntent,
+  writeFinishIntent,
   type BufferedPoint,
 } from "@/client/runBuffer";
 import { readTrackerRecord, requestPersistentStorage } from "@/client/tracker";
@@ -81,6 +82,11 @@ export type RunTrackerView = {
   /** 현재 위치가 Ranking Zone 안인가. 신호를 잃은 동안에는 마지막 판정을 유지한다. */
   inZone: boolean;
   marker: { lat: number; lng: number } | null;
+  /**
+   * 종료 슬라이드가 끝까지 밀렸을 때 부른다(#85 · D11). 측정을 즉시 멈추고 종료 intent를
+   * IndexedDB 에 남긴다 — 서버 전달과 결과 화면 이동은 호출부(`SlideToFinish`) 몫이다.
+   */
+  finish: (clientFinishedAt: number) => Promise<void>;
 };
 
 type UseRunTrackerInput = {
@@ -651,6 +657,39 @@ export function useRunTracker({
     (point) => point.kind === "measured",
   );
 
+  /*
+    측정을 **먼저** 멈추고 IndexedDB 에 종료 intent 를 남긴다(#85 · D11) — 결과 화면으로
+    옮기기 전에 이 기기가 더 이상 점을 만들지 않는다는 것을 durable 하게 확정해 둔다.
+
+    tracker record 를 다시 읽는 이유 — token 은 `useState` 로 들고 있지 않고 IndexedDB 에만
+    있다(D11, 인증 값과 같은 취급). record 가 없거나 이 세션 것이 아니면(read-only 기기가
+    실수로 눌렀을 경우) 아무것도 남기지 않는다 — writer 가 아닌 기기의 종료 intent는 없다.
+  */
+  const finish = useCallback(
+    async (clientFinishedAt: number) => {
+      stoppedRef.current = true;
+      stopWatch();
+      clearWarningTimer();
+      if (flushTimerRef.current !== null) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+
+      const record = await readTrackerRecord(userId).catch(() => null);
+      if (!record || record.sessionId !== sessionId) return;
+
+      await writeFinishIntent({
+        userId,
+        sessionId,
+        trackerToken: record.trackerToken,
+        trackerGeneration: record.trackerGeneration,
+        clientFinishedAt,
+        lastRawSeq: Math.max(0, nextRawSeqRef.current - 1),
+      });
+    },
+    [clearWarningTimer, sessionId, stopWatch, userId],
+  );
+
   return {
     status,
     gpsWarning,
@@ -663,5 +702,6 @@ export function useRunTracker({
     marker: lastMeasured
       ? { lat: lastMeasured.lat, lng: lastMeasured.lng }
       : null,
+    finish,
   };
 }
