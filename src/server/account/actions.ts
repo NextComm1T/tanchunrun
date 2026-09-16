@@ -1,7 +1,10 @@
 "use server";
 
+import { cookies } from "next/headers";
+
 import { PRIVACY_CONSENT_VERSION } from "@/app/signup/consent/consentSections";
-import { getViewer } from "@/server/auth/session";
+import { readAuthEnv, sessionCookieName } from "@/server/auth/config";
+import { getViewer, sessionCookieAttributes } from "@/server/auth/session";
 
 import { hasCurrentConsent, insertCurrentConsent } from "./consent";
 import {
@@ -9,11 +12,12 @@ import {
   updateStoredNickname,
   type NicknameSaveError,
 } from "./nickname";
+import { deleteAccount, type WithdrawError } from "./withdraw";
 
 /**
- * 가입 흐름의 server action(#80).
+ * 계정 관련 server action — 가입 흐름(#80)과 회원 탈퇴(#88).
  *
- * 세 함수 모두 **userId 를 `getViewer()` 에서만 얻는다.** client 가 보낸 userId 를 받는
+ * 네 함수 모두 **userId 를 `getViewer()` 에서만 얻는다.** client 가 보낸 userId 를 받는
  * 인자가 아예 없어서, 남의 계정을 지목할 방법이 없다.
  *
  * 이 파일은 `"use server"` 라서 `import "server-only"` 를 붙이지 않는다 —
@@ -92,6 +96,54 @@ export async function updateNickname(
       viewer.nickname,
     );
   } catch {
+    return { ok: false, error: "failed" };
+  }
+}
+
+/**
+ * 회원 탈퇴(#88 · F13 · P12 · P13 · D11).
+ *
+ * 순서가 계약이다 — **삭제가 커밋된 뒤에만 쿠키를 지운다.** 반대로 하면 계정은 남아 있는데
+ * 로그아웃만 된 상태가 되고, 화면은 탈퇴한 것처럼 보인다(가짜 성공).
+ *
+ * **재인증을 요구하지 않는다**(D11 CONFIRMED). OAuth 재수행 · 닉네임 재입력 같은 단계 대신
+ * ① 유효 session ② active run 차단 ③ Server Action origin 검사(Next 가 모든 server action
+ * 요청에서 수행한다 — 여기서 헤더를 직접 읽지 않는다) ④ 원자적 트랜잭션 ⑤ 커밋 확인 후
+ * 쿠키 삭제로 보호한다. 화면의 2단계(안내 화면 + 확인 모달)는 그대로 둔다.
+ *
+ * **기기 IndexedDB 정리는 여기서 하지 않는다.** 서버는 브라우저 저장소에 닿을 수 없어서,
+ * 성공을 받은 화면이 `deleteLocalDataForUser()` 로 이어서 한다(D11 permanent cleanup ④).
+ */
+export async function withdraw(): Promise<
+  { ok: true } | { ok: false; error: WithdrawError }
+> {
+  let deleted = false;
+
+  try {
+    const viewer = await getViewer();
+    if (!viewer) return { ok: false, error: "failed" };
+
+    const result = await deleteAccount(viewer.userId);
+    if (!result.ok) return result;
+
+    deleted = true;
+
+    const { secureCookies } = readAuthEnv();
+    const store = await cookies();
+    store.set(sessionCookieName(secureCookies), "", {
+      ...sessionCookieAttributes(secureCookies),
+      maxAge: 0,
+    });
+
+    return { ok: true };
+  } catch {
+    /*
+      삭제가 커밋된 뒤에 쿠키를 지우다 실패한 경우다. 결과는 여전히 「탈퇴됨」이라
+      `failed` 를 돌려주면 이미 사라진 계정을 두고 다시 시도를 시키게 된다.
+      남은 쿠키가 가리키는 `auth_sessions` 행도 함께 지워졌으므로 다음 요청은 로그아웃이다.
+    */
+    if (deleted) return { ok: true };
+
     return { ok: false, error: "failed" };
   }
 }
