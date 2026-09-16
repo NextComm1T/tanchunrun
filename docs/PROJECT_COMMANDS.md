@@ -34,7 +34,7 @@ provider 에 등록된 callback 주소가 어긋나서 로그인이 실패한다
 | `npm run lint` | ESLint (`eslint-config-next`) | 출력이 없으면 위반 0 |
 | `npm test` | Vitest (`vitest run`) | **순수 함수만** 돈다. 화면 · DB · 네트워크는 대상이 아니다 |
 | `npm run db:generate` | schema 변경 → migration SQL 생성 | DB 에 접속하지 않는다 |
-| `npm run db:migrate` | migration 을 DB 에 적용 | `DATABASE_URL` 이 필요하다 |
+| `npm run db:migrate` | migration 을 DB 에 적용 | **direct(unpooled) 접속**이 필요하다 — 아래 「스키마 적용」 |
 
 ## DB — 로그인을 쓰려면 필요하다
 
@@ -78,6 +78,16 @@ npm run db:migrate
 ```
 
 빈 DB 에 한 번 돌리면 스키마가 생기고, 다시 돌려도 바뀌는 것이 없다. 이력은 `drizzle.__drizzle_migrations` 에 남는다.
+
+**migration 은 direct(unpooled) 접속으로만 돈다**(#78 D3-A — 앱 runtime 은 pooled, migration 은 direct).
+
+- 로컬 Docker 는 pooler 가 없으므로 `DATABASE_URL` 하나면 된다. 신경 쓸 것이 없다.
+- **Neon 은 다르다.** Vercel 통합이 `DATABASE_URL`(pooled · 호스트에 `-pooler`)과
+  `DATABASE_URL_UNPOOLED`(direct) 둘을 함께 준다. `drizzle.config.ts` 가 **`DATABASE_URL_UNPOOLED` 를
+  먼저 집고**, 없으면 `DATABASE_URL` 로 넘어간다.
+- pooled 밖에 없으면 **오류로 멈춘다.** pooled(PgBouncer transaction mode)는 세션 수준 기능을
+  지원하지 않아 DDL 이 실패하거나 조용히 이상하게 돌 수 있는데, migration 이 반쯤 적용된 상태가
+  실패보다 훨씬 비싸다. 멈추면 `DATABASE_URL_UNPOOLED` 를 채운다.
 
 ### migration 정책
 
