@@ -1,7 +1,14 @@
 import Link from "next/link";
 
-import { formatDate, formatDistance, formatDuration, formatPace } from "./format";
-import type { RunSession } from "./mock";
+import type { RecordSummary } from "@/server/records";
+
+import {
+  formatDate,
+  formatDistance,
+  formatDuration,
+  formatPace,
+  metersToKm,
+} from "./format";
 
 /** 수치 톤. 클래스명을 조립하지 않도록 완성된 리터럴로 둔다. */
 const METRIC_TONE = {
@@ -40,9 +47,9 @@ function Metric({ label, value, unit, tone = "default" }: MetricProps) {
  * 원본은 `<button onClick>` 이지만 실제 앱에서는 route 이동이라 링크로 둔다
  * (`modify/2026-09-15-bottomnav.md` 2번과 같은 판단).
  */
-export function RecordListItem({ session }: { session: RunSession }) {
+export function RecordListItem({ session }: { session: RecordSummary }) {
   // 탄천 인정 거리가 0 인 세션만 "탄천 외" 다(원본 L1239).
-  const isOutside = session.tancheonDistanceKm === 0;
+  const isOutside = session.tancheonDistanceM === 0;
 
   return (
     <Link
@@ -52,7 +59,7 @@ export function RecordListItem({ session }: { session: RunSession }) {
       <div className="mb-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-button font-extrabold text-foreground">
-            {formatDate(session.date)}
+            {formatDate(session.runDate)}
           </span>
           {isOutside ? (
             <span className="rounded-full bg-surface-muted px-[9px] py-[3px] text-caption font-bold text-muted">
@@ -77,15 +84,15 @@ export function RecordListItem({ session }: { session: RunSession }) {
       </div>
 
       <dl className="grid grid-cols-4 gap-2">
-        <Metric label="총 거리" value={formatDistance(session.totalDistanceKm)} unit="km" />
+        <Metric label="총 거리" value={formatDistance(metersToKm(session.totalDistanceM))} unit="km" />
         <Metric
           label="탄천 인정"
-          value={formatDistance(session.tancheonDistanceKm)}
+          value={formatDistance(metersToKm(session.tancheonDistanceM))}
           unit="km"
           tone="success"
         />
         <Metric label="시간" value={formatDuration(session.durationSec)} />
-        <Metric label="페이스" value={formatPace(session.paceSecPerKm)} />
+        <Metric label="페이스" value={formatPace(session.avgPaceSecPerKm)} />
       </dl>
     </Link>
   );

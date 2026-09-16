@@ -52,3 +52,8 @@ export function formatPace(secPerKm: number | null): string {
 
   return `${Math.floor(secPerKm / 60)}'${pad2(secPerKm % 60)}"`;
 }
+
+/** 미터로 저장된 거리를 화면 표기(km)로. 저장은 m, 표시는 km 다. */
+export function metersToKm(meters: number): number {
+  return meters / 1000;
+}

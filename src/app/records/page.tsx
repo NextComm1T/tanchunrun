@@ -1,41 +1,40 @@
+import { redirect } from "next/navigation";
+
 import { AppShell } from "@/components/shared/AppShell";
 import { BottomNav } from "@/components/shared/BottomNav";
+import { getViewer } from "@/server/auth/session";
+import {
+  getPersonalBest,
+  getRecordTotals,
+  listRecords,
+} from "@/server/records";
 
 import { AccumulatedCards } from "./AccumulatedCards";
-import {
-  EMPTY_PERSONAL_BEST,
-  EMPTY_RECORDS_NOTICE,
-  MOCK_PERSONAL_BEST,
-  MOCK_SESSIONS,
-} from "./mock";
 import { PersonalBestCard } from "./PersonalBestCard";
 import { RecordListItem } from "./RecordListItem";
 import { RecordSection } from "./RecordSection";
 import { SettingsGearLink } from "./SettingsGearLink";
-import { sortLatestFirst, toTotals } from "./summary";
+
+/** 기록 0건 안내(F7 예외). 디자인에 빈 상태가 없어 문구는 문서를 따른다. */
+const EMPTY_RECORDS_NOTICE = "아직 기록이 없습니다";
 
 /**
- * 이 화면에는 실패할 요청이 없다 — 서버가 없으니 loading · error 가 성립하지 않는다.
- * 대신 기록이 있을 때와 0건일 때를 리뷰어가 코드를 고치지 않고 볼 수 있게 URL 쿼리로 고른다.
- * `/settings?state=` 가 이미 쓰는 방식 그대로다. 모르는 값은 기록 있음으로 묶는다.
+ * 기록 탭(#44 · #86 · F7 · R23).
+ *
+ * `?state=empty` 로 빈 상태를 흉내내던 쿼리 계약은 없앴다 — 실제 조회가 붙었으므로 기록이
+ * 0건이면 그대로 빈 상태가 된다. 조회가 실패하면 `error.tsx` 가 오류와 「다시 시도」를 맡는다.
+ *
+ * 세 조회를 함께 기다린다. 서로를 필요로 하지 않아 순서대로 부를 이유가 없다.
  */
-type RecordsVariant = "ready" | "empty";
+export default async function RecordsPage() {
+  const viewer = await getViewer();
+  if (!viewer) redirect("/login");
 
-function resolveVariant(raw: string | string[] | undefined): RecordsVariant {
-  const value = Array.isArray(raw) ? raw[0] : raw;
-
-  return value === "empty" ? "empty" : "ready";
-}
-
-export default async function RecordsPage({
-  searchParams,
-}: PageProps<"/records">) {
-  const { state } = await searchParams;
-  const isEmpty = resolveVariant(state) === "empty";
-
-  const sessions = sortLatestFirst(isEmpty ? [] : MOCK_SESSIONS);
-  const totals = toTotals(sessions);
-  const personalBest = isEmpty ? EMPTY_PERSONAL_BEST : MOCK_PERSONAL_BEST;
+  const [sessions, totals, personalBest] = await Promise.all([
+    listRecords(viewer.userId),
+    getRecordTotals(viewer.userId),
+    getPersonalBest(viewer.userId),
+  ]);
 
   return (
     // 탭 화면이라 공용 `Header` 를 쓰지 않는다 — 기어가 제목 위 오른쪽에 있는 전용 상단이다(L831-839).
