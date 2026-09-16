@@ -1,68 +1,25 @@
 import Image from "next/image";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/shared/AppShell";
 import { BottomNav } from "@/components/shared/BottomNav";
+import { getViewer } from "@/server/auth/session";
+import { getRanking, type RankingEntry } from "@/server/rankingView";
 
 import medalGold from "@assets/medal-1.png";
 import medalSilver from "@assets/medal-2.png";
 import medalBronze from "@assets/medal-3.png";
 
-import {
-  EMPTY_RANKING_NOTICE,
-  MOCK_RANKINGS,
-  type RankedEntry,
-  type RankingEntry,
-} from "./mock";
-
 /** 1·2·3위만 메달이고 4위부터는 숫자다(디자인 L803-812). */
 const MEDALS = [medalGold, medalSilver, medalBronze];
 
-/**
- * 이 화면에는 실패할 요청이 없다 — 집계가 없으니 loading · error 가 성립하지 않는다.
- * 대신 논리적으로 반드시 생기는 두 상태를 리뷰어가 코드를 고치지 않고 볼 수 있게
- * URL 쿼리로 고른다. `/settings?state=` 가 이미 쓰는 방식 그대로다
- * (`src/app/settings/page.tsx:23-28`). 모르는 값은 정상으로 묶는다.
- *
- * - `empty`    — 아직 아무도 랭킹에 오르지 않았다
- * - `unranked` — 남들은 있는데 내 누적이 0이라 내가 목록에 없다
- */
-type RankingVariant = "ready" | "empty" | "unranked";
+/** 목록이 비었을 때(디자인에 없는 상태 — `modify/2026-09-15-ranking.md` 1번). */
+const EMPTY_RANKING_NOTICE = "아직 랭킹 데이터가 없습니다";
 
-function resolveVariant(raw: string | string[] | undefined): RankingVariant {
-  const value = Array.isArray(raw) ? raw[0] : raw;
-
-  return value === "empty" || value === "unranked" ? value : "ready";
-}
-
-function toEntries(variant: RankingVariant): RankingEntry[] {
-  if (variant === "empty") return [];
-
-  // 본인 미등재는 별도 분기가 아니라 "내 누적이 0" 이다 — 아래 P5 필터가 그대로 떨군다.
-  if (variant === "unranked") {
-    return MOCK_RANKINGS.map((entry) =>
-      entry.isMe ? { ...entry, distance: 0 } : entry,
-    );
-  }
-
-  return MOCK_RANKINGS;
-}
-
-/**
- * 순위를 매긴다. 인원 제한 없이 전체를 돌려준다(P5).
- *
- * `filter` 가 먼저 새 배열을 만들기 때문에 뒤의 `sort` 가 mock 원본을 흔들지 않는다.
- */
-function toRanking(entries: RankingEntry[]): RankedEntry[] {
-  return entries
-    .filter((entry) => entry.distance > 0) // 누적 0은 랭킹에 오르지 않는다 (P5)
-    .sort(
-      (a, b) =>
-        b.distance - a.distance ||
-        // 같은 거리면 먼저 닿은 쪽이 위다 (P5 · P8)
-        a.firstReachedAt.localeCompare(b.firstReachedAt),
-    )
-    .map((entry, index) => ({ ...entry, rank: index + 1 }));
+/** 거리는 m 로 저장하고 km 소수 한 자리로 보여 준다(디자인 L969-983). */
+function toKilometres(distanceM: number): string {
+  return (distanceM / 1000).toFixed(1);
 }
 
 /** 설정 진입(디자인 L779). 탭 화면이라 공용 `Header` 를 쓰지 않는다. */
@@ -94,7 +51,7 @@ function SettingsGearLink() {
 }
 
 /** 내 순위 강조 카드(디자인 L784-797). 내가 목록에 없으면 화면이 아예 렌더하지 않는다. */
-function MyRankCard({ entry }: { entry: RankedEntry }) {
+function MyRankCard({ entry }: { entry: RankingEntry }) {
   return (
     <div className="sticky top-2.5 z-[5] mx-2 mb-3.5 flex items-center gap-4 rounded-2xl bg-primary px-5 py-[18px] text-on-primary shadow-primary">
       <p className="flex shrink-0 items-baseline gap-[3px]">
@@ -107,12 +64,12 @@ function MyRankCard({ entry }: { entry: RankedEntry }) {
       <div className="h-[42px] w-px shrink-0 bg-on-primary/30" aria-hidden="true" />
 
       <p className="min-w-0 flex-1 truncate text-lg font-extrabold">
-        {entry.name}
+        {entry.nickname}
       </p>
 
       <p className="flex shrink-0 items-baseline gap-[3px]">
         <span className="text-[24px] font-extrabold leading-none">
-          {entry.distance}
+          {toKilometres(entry.distanceM)}
         </span>
         <span className="text-label font-semibold text-on-primary/80">km</span>
       </p>
@@ -121,7 +78,7 @@ function MyRankCard({ entry }: { entry: RankedEntry }) {
 }
 
 /** 순위 한 줄(디자인 L801-822). 다른 사용자의 상세로 들어가는 길은 없다(P5 · SP1). */
-function RankingRow({ entry }: { entry: RankedEntry }) {
+function RankingRow({ entry }: { entry: RankingEntry }) {
   const isTop3 = entry.rank <= 3;
   const toneClassName = entry.isMe
     ? "text-primary-strong"
@@ -156,7 +113,7 @@ function RankingRow({ entry }: { entry: RankedEntry }) {
           isTop3 ? "text-[21px]" : "text-lg"
         } ${toneClassName}`}
       >
-        {entry.name}
+        {entry.nickname}
       </p>
 
       <p className="shrink-0">
@@ -165,7 +122,7 @@ function RankingRow({ entry }: { entry: RankedEntry }) {
             isTop3 ? "text-[23px]" : "text-title"
           } ${toneClassName}`}
         >
-          {entry.distance}
+          {toKilometres(entry.distanceM)}
         </span>
         <span className="ml-1 text-[12.5px] font-semibold text-muted">km</span>
       </p>
@@ -173,13 +130,23 @@ function RankingRow({ entry }: { entry: RankedEntry }) {
   );
 }
 
-export default async function RankingPage({
-  searchParams,
-}: PageProps<"/ranking">) {
-  const { state } = await searchParams;
+/**
+ * 홈 — 랭킹 탭(#43 · #87 · F5 · P5 · P8).
+ *
+ * 목록 · 본인 줄 · 인원수가 모두 실제 누적(`save_state = 'saved'` 파생 · D6)에서 나온다.
+ * 상태를 흉내내던 `?state=` 쿼리 계약은 없앴다 — 아무도 랭킹에 오르지 않았으면 그대로 빈
+ * 상태이고, 내 누적이 0 이면 내 순위 카드가 렌더되지 않는다. 조회가 실패하면 `error.tsx` 가
+ * 오류와 「다시 시도」를 맡는다.
+ *
+ * **여기서 순위를 계산하지 않는다.** 정렬 · 동점 · 0 제외는 서버(`getRanking`)가 끝낸 값을
+ * 그대로 그린다 — 결과 화면 스냅샷(#85)과 같은 규칙을 지나야 두 화면이 어긋나지 않는다.
+ */
+export default async function RankingPage() {
+  const viewer = await getViewer();
+  if (!viewer) redirect("/login");
 
-  const rankings = toRanking(toEntries(resolveVariant(state)));
-  const myEntry = rankings.find((entry) => entry.isMe);
+  const { entries, total } = await getRanking(viewer.userId);
+  const myEntry = entries.find((entry) => entry.isMe);
 
   return (
     <AppShell bottom={<BottomNav />}>
@@ -189,7 +156,7 @@ export default async function RankingPage({
             탄천 랭킹
           </h1>
           <p className="mt-1 text-sm font-medium text-muted">
-            누적 거리 기준 · 총 {rankings.length}명
+            누적 거리 기준 · 총 {total}명
           </p>
         </div>
 
@@ -198,10 +165,10 @@ export default async function RankingPage({
 
       {myEntry ? <MyRankCard entry={myEntry} /> : null}
 
-      {rankings.length > 0 ? (
+      {entries.length > 0 ? (
         <ul className="flex flex-col gap-[9px] pb-4">
-          {rankings.map((entry) => (
-            <RankingRow key={entry.name} entry={entry} />
+          {entries.map((entry) => (
+            <RankingRow key={entry.nickname} entry={entry} />
           ))}
         </ul>
       ) : (
