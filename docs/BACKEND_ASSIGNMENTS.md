@@ -36,7 +36,7 @@ MVP backend 구현 Issue 의 담당·상태 표다. 화면(UI/mock) 구현 이�
 | B5 | #85 | 러닝 종료(F6) 2단계 처리 + 결과 화면 실데이터(F9) + P14 recovery | **READY** | `merge: #83 B4b · #84 B4c · CONFIRMED: D6 · D7 · D13 · D14` | — | `feat/85-run-finish-result` | #86 · #87 · #88 |
 | B6 | #86 | 기록 탭·기록 상세·개인 최고 기록 실데이터 + legacy 지도 삭제 | BLOCKED | `merge: #83 B4b · #84 B4c · #85 B5 · CONFIRMED: D6` | — | `feat/86-records-data` | #89 |
 | B7 | #87 | 누적 랭킹·홈 요약 실데이터 | BLOCKED | `merge: #85 B5 · CONFIRMED: D6 · D7` | — | `feat/87-ranking-home-data` | #89 |
-| B8 | #88 | 설정 실데이터·회원 탈퇴 transaction·로그아웃 통합 | BLOCKED | `merge: #81 B3 · #85 B5 · CONFIRMED: D11` | — | `feat/88-settings-withdraw` | #89 |
+| B8 | #88 | 설정 실데이터·회원 탈퇴 transaction·로그아웃 통합 | MERGED | `merge: #81 B3 · #85 B5 · CONFIRMED: D11` | — | `feat/88-settings-withdraw` | #89 |
 | B9 | #89 | MVP 전체 통합·실패·E2E 안정화 + MVP Backend Completion Gate 판정 | BLOCKED | `merge: #86 B6 · #87 B7 · #88 B8 · CONFIRMED: D3-A · D3-B` | — | `chore/89-mvp-backend-gate` | Gate 판정(통과 시 담당자가 승격·Phase 1 판단) |
 
 **담당 칸은 비어 있다. READY 가 된 Issue 부터 담당자가 배정한다.**
