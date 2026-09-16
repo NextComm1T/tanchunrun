@@ -4,19 +4,20 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * "밀어서 러닝 종료" 슬라이드 컨트롤(디자인 L288-295 · 핸들러 L1028-1046).
+ * "밀어서 러닝 종료" 슬라이드 컨트롤(디자인 L288-295 · 핸들러 L1028-1046 · #85).
  *
  * 이 화면에서 나가는 유일한 길이다 — 하단 탭바가 없다(`docs/07-screens.md:56`).
  *
- * 끝까지 밀면 결과 화면으로 **`replace`** 한다. 완료된 러닝 화면으로 뒤로 가기가
- * 돌아가지 않게 하는 정상 흐름 통합 정책이다(이슈 #40 · #41 결정 이력).
+ * 끝까지 밀면 **먼저** `onFinish` 로 측정을 멈추고 IndexedDB 에 종료 intent 를 남긴 뒤,
+ * **곧바로** 같은 `sessionId` 의 결과 화면으로 `replace` 한다(D11 — 서버 전달 · finish 호출
+ * 결과를 기다리지 않는다. 그건 결과 화면의 recovery gate 몫이다). 완료된 러닝 화면으로
+ * 뒤로 가기가 돌아가지 않게 하는 정상 흐름 통합 정책이다(이슈 #40 · #41 결정 이력).
  */
 
-/**
- * 결과 화면(#41)의 mock session id `"2"` — 랭킹 반영 · 개인 최고 기록 아님.
- * 정본 `handleStop`(L1155-1167)이 인정 거리가 있는 보통 러닝을 이렇게 분류한다 · `modify/` 6번.
- */
-const RESULT_HREF = "/result/2";
+type SlideToFinishProps = {
+  sessionId: string;
+  onFinish: (clientFinishedAt: number) => Promise<void>;
+};
 
 /** 트랙 안에서 핸들이 갖는 여백과 크기(디자인 L291-292). */
 const KNOB_INSET = 6;
@@ -26,7 +27,7 @@ const FINISH_RATIO = 0.82;
 /** 라벨이 완전히 사라지는 거리(원본 L1338). */
 const LABEL_FADE_DISTANCE = 140;
 
-export function SlideToFinish() {
+export function SlideToFinish({ sessionId, onFinish }: SlideToFinishProps) {
   const router = useRouter();
   const trackRef = useRef<HTMLDivElement>(null);
   const [offset, setOffset] = useState(0);
@@ -71,7 +72,9 @@ export function SlideToFinish() {
 
       if (offsetRef.current >= max * FINISH_RATIO) {
         moveKnob(max);
-        router.replace(RESULT_HREF);
+        // 측정을 멈추고 종료 intent 를 남긴 뒤에만 이동한다 — 순서가 바뀌면 이동 중에
+        // 탭이 죽었을 때 durable 기록 없이 화면만 바뀐 상태가 될 수 있다.
+        void onFinish(Date.now()).then(() => router.replace(`/result/${sessionId}`));
         return;
       }
 
