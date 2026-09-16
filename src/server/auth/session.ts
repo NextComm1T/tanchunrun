@@ -2,11 +2,11 @@ import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 
 import { getDb } from "@/server/db/client";
-import { authSessions, users } from "@/server/db/schema";
+import { authSessions, runSessions, users } from "@/server/db/schema";
 
 import {
   SESSION_TTL_MS,
@@ -31,6 +31,13 @@ export type Viewer = {
   accountState: string;
   nickname: string | null;
   provider: AuthProvider;
+  /**
+   * 진행 중인 러닝이 있는가(#81 · P7 · P12).
+   *
+   * #79 의 기존 네 필드에 **덧붙인 것**이고 그 의미를 바꾸지 않는다. 로그아웃 · 탈퇴를
+   * 막는 서버 가드가 이 값을 본다.
+   */
+  hasActiveRun: boolean;
 };
 
 function hashToken(rawToken: string): string {
@@ -99,6 +106,17 @@ export async function readViewerByToken(
       accountState: users.accountState,
       nickname: users.nickname,
       provider: authSessions.provider,
+      /*
+        진행 중인 러닝 존재 여부(#81). 조인이 아니라 EXISTS 인 이유가 둘 있다 —
+        조인하면 세션 행이 러닝 수만큼 늘어나고, EXISTS 는 한 행을 찾는 순간 멈춘다.
+        무엇보다 **왕복이 늘지 않는다**: 이 값 하나 때문에 쿼리를 한 번 더 보내면
+        모든 화면이 세션을 읽을 때마다 DB 를 두 번 친다.
+      */
+      hasActiveRun: sql<boolean>`exists (
+        select 1 from ${runSessions}
+        where ${runSessions.userId} = ${users.id}
+          and ${runSessions.status} = 'active'
+      )`,
     })
     .from(authSessions)
     .innerJoin(users, eq(users.id, authSessions.userId))
@@ -119,6 +137,7 @@ export async function readViewerByToken(
     accountState: row.accountState,
     nickname: row.nickname,
     provider: row.provider as AuthProvider,
+    hasActiveRun: row.hasActiveRun,
   };
 }
 

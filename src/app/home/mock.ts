@@ -8,30 +8,17 @@
 
 import type { MapPoint } from "@/components/shared/TancheonMap";
 
+/*
+  GPS 상태 · 문구는 여기 없다. 실제 권한 · 측위가 붙어서 mock 이 아니게 됐고,
+  `./gps.ts`(문구)와 `./useGeolocationReady.ts`(상태)로 옮겼다(#81).
+*/
+
 /**
- * GPS 준비 상태.
+ * 인사말(디자인 L705).
  *
- * 디자인의 비준비 상태는 "GPS 확인 중" 하나뿐이다(이슈 #42 「상태 정의」).
- * 위치 권한 미허용 · GPS 미확보 안내는 정본에 없어 만들지 않는다.
+ * 세션에 실제 닉네임이 있지만(#80) **아직 mock 으로 둔다** — 홈 요약의 실데이터 전환은
+ * #87 · #88 의 몫이고, #81 은 `home/mock.ts` 의 GPS · route 부분만 건드린다.
  */
-export type GpsState = "checking" | "ready";
-
-/** 상단 배지 문구(디자인 L693 · L696). 확인 중의 말줄임은 원본이 애니메이션으로 늘리는 자리다. */
-export const GPS_BADGE_LABEL: Record<GpsState, string> = {
-  checking: "GPS 확인 중...",
-  ready: "GPS 준비완료",
-};
-
-/** 러닝 시작 버튼 문구(디자인 L1304). 확인 중에는 P1 대로 누를 수 없다. */
-export const START_BUTTON_LABEL: Record<GpsState, string> = {
-  checking: "GPS 확인 중...",
-  ready: "러닝 시작하기",
-};
-
-/** 지도를 덮는 GPS 확인 중 안내(디자인 L724-730). */
-export const GPS_CHECKING_NOTICE = ["GPS 확인 중", "러닝을 준비 중입니다"] as const;
-
-/** 인사말(디자인 L705) — 닉네임은 설정 화면 mock 과 같은 값을 쓴다. */
 export const MOCK_NICKNAME = "뚝심주자";
 
 /** 내 탄천 순위 카드의 값(디자인 L760-768). */
@@ -45,9 +32,9 @@ export const MOCK_RANK = {
 /**
  * 내 위치 핀(`TancheonMapBrand.dc.html:57-58`).
  *
- * 실제 GPS 는 이슈 #42 의 제외 범위라 좌표도 mock 이다. 확인 중 · 준비완료
- * 어느 쪽이든 같은 자리에 찍힌다 — 정본도 핀 자체는 상태로 가르지 않고,
- * 확인 중에는 딤이 지도를 덮는다(L724-730).
+ * **아직 mock 이다.** 실제 위경도를 지도 좌표로 옮기는 일은 지도 전환(#84)과 측정(#83)의
+ * 몫이라, #81 이 첫 측위를 받게 된 뒤에도 핀 자리는 그대로 둔다. 어느 상태에서나 같은
+ * 자리에 찍히고, 준비되지 않았을 때는 딤이 지도를 덮는다(L724-730).
  */
 export const MOCK_USER_PIN: MapPoint = { x: 155, y: 112 };
 

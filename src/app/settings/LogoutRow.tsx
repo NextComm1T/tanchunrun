@@ -9,6 +9,18 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ROW_CLASS, ROW_DIVIDER_CLASS, RowChevron } from "./SettingsRow";
 
 /**
+ * 실패 사유별 문구.
+ *
+ * `active_session` 은 러닝이 진행 중이라 서버가 막은 경우다(P12 · #81). 설정 화면이 이미
+ * 이 줄 대신 `SettingsBlockedRow` 를 그리지만, **화면을 그린 뒤에 다른 기기에서 러닝이
+ * 시작될 수 있어서** 여기까지 오는 길이 있다. UI 비활성을 검증으로 치지 않는다.
+ */
+const LOGOUT_ERROR_MESSAGES = {
+  active_session: "진행 중인 러닝을 먼저 종료해 주세요",
+  failed: "로그아웃하지 못했습니다. 잠시 후 다시 시도해주세요.",
+} as const;
+
+/**
  * 「계정」 섹션의 로그아웃 줄(디자인 L425) + 확인 모달(L938-950).
  *
  * 이 화면에서 상호작용이 필요한 유일한 조각이라 여기만 클라이언트 컴포넌트다.
@@ -18,19 +30,19 @@ import { ROW_CLASS, ROW_DIVIDER_CLASS, RowChevron } from "./SettingsRow";
 export function LogoutRow() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function handleConfirm() {
     setOpen(false);
-    setFailed(false);
+    setError(null);
 
     startTransition(async () => {
       const result = await signOut();
 
       if (!result.ok) {
         // 세션이 그대로 살아 있다. 이동하면 로그아웃된 것처럼 보이는 가짜 성공이 된다.
-        setFailed(true);
+        setError(LOGOUT_ERROR_MESSAGES[result.error]);
         return;
       }
 
@@ -57,12 +69,12 @@ export function LogoutRow() {
         로그아웃 실패 안내. 디자인에 없는 요소지만 #79 가 「실패 시 오류 표시 · 로그인 유지」를
         요구한다(`modify/2026-09-16-auth.md` 5번). 로그인 화면의 실패 안내와 같은 토큰을 쓴다.
       */}
-      {failed ? (
+      {error ? (
         <p
           role="alert"
           className="mx-5 mb-4 rounded-md border-[1.5px] border-error-border bg-error-soft px-4 py-3 text-sm font-bold text-error"
         >
-          로그아웃하지 못했습니다. 잠시 후 다시 시도해주세요.
+          {error}
         </p>
       ) : null}
 
