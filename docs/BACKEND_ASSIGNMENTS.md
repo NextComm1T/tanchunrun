@@ -27,13 +27,13 @@ MVP backend 구현 Issue 의 담당·상태 표다. 화면(UI/mock) 구현 이�
 | Symbol | Issue | 제목 | Status | 선행 | 담당 | canonical branch | Downstream |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | B0 | #78 | Backend 결정 Issue: platform · 인증 스택 · 데이터 정책 확정 | decision-only | decision-only · 구현 프롬프트 미사용 | — | (없음) | 전체 |
-| B1 | #79 | DB·인증 기반: User + 계정 연결 + OAuth + 로그인 유지 + 로그아웃 | BLOCKED | `merge: 없음 · CONFIRMED: D1 · D2 · D3-A · D12` | — | `feat/79-auth-db` | #80 |
-| B2 | #80 | 가입 동의·최초 닉네임·닉네임 수정·루트 인증 분기 | BLOCKED | `merge: #79 B1 · CONFIRMED: D5` | — | `feat/80-signup-nickname` | #81 |
-| B3 | #81 | 위치 권한·GPS ready + RunSession 시작·유지·복원 + P12 로그아웃 서버 차단 | BLOCKED | `merge: #80 B2 · CONFIRMED: D1 · D8 · D14` | — | `feat/81-run-session-start` | #84 · #83 · #88 |
-| B4a | #82 | 측정 계산 domain(WGS84 · P2 · P5 · P9 · R11 · 페이스) + 검증 러너 | BLOCKED | `merge: 없음 · CONFIRMED: D9 · D10 · D12` | — | `feat/82-measure-domain` | #84 · #83 |
-| B4c | #84 | NAVER Maps 공용 지도 컴포넌트 추가 + 홈 지도 전환 (점진적 migration) | BLOCKED | `merge: #81 B3 · #82 B4a · CONFIRMED: D1 · D3-B` | — | `feat/84-naver-map` | #83 · #85 · #86 |
-| B4b | #83 | 러닝 실측: GPS 수집·업로드·오프라인 버퍼·실시간 표시·running 지도 전환 | BLOCKED | `merge: #81 B3 · #82 B4a · #84 B4c · CONFIRMED: D1 · D10 · D11 · D14` | — | `feat/83-run-tracking` | #85 · #86 |
-| B5 | #85 | 러닝 종료(F6) 2단계 처리 + 결과 화면 실데이터(F9) + P14 recovery | BLOCKED | `merge: #83 B4b · #84 B4c · CONFIRMED: D6 · D7 · D13 · D14` | — | `feat/85-run-finish-result` | #86 · #87 · #88 |
+| B1 | #79 | DB·인증 기반: User + 계정 연결 + OAuth + 로그인 유지 + 로그아웃 | MERGED | `merge: 없음 · CONFIRMED: D1 · D2 · D3-A · D12` | — | `feat/79-auth-db` | #80 |
+| B2 | #80 | 가입 동의·최초 닉네임·닉네임 수정·루트 인증 분기 | MERGED | `merge: #79 B1 · CONFIRMED: D5` | — | `feat/80-signup-nickname` | #81 |
+| B3 | #81 | 위치 권한·GPS ready + RunSession 시작·유지·복원 + P12 로그아웃 서버 차단 | MERGED | `merge: #80 B2 · CONFIRMED: D1 · D8 · D14` | — | `feat/81-run-session-start` | #84 · #83 · #88 |
+| B4a | #82 | 측정 계산 domain(WGS84 · P2 · P5 · P9 · R11 · 페이스) + 검증 러너 | MERGED | `merge: 없음 · CONFIRMED: D9 · D10 · D12` | — | `feat/82-measure-domain` | #84 · #83 |
+| B4c | #84 | NAVER Maps 공용 지도 컴포넌트 추가 + 홈 지도 전환 (점진적 migration) | MERGED | `merge: #81 B3 · #82 B4a · CONFIRMED: D1 · D3-B` | — | `feat/84-naver-map` | #83 · #85 · #86 |
+| B4b | #83 | 러닝 실측: GPS 수집·업로드·오프라인 버퍼·실시간 표시·running 지도 전환 | MERGED | `merge: #81 B3 · #82 B4a · #84 B4c · CONFIRMED: D1 · D10 · D11 · D14` | — | `feat/83-run-tracking` | #85 · #86 |
+| B5 | #85 | 러닝 종료(F6) 2단계 처리 + 결과 화면 실데이터(F9) + P14 recovery | **READY** | `merge: #83 B4b · #84 B4c · CONFIRMED: D6 · D7 · D13 · D14` | — | `feat/85-run-finish-result` | #86 · #87 · #88 |
 | B6 | #86 | 기록 탭·기록 상세·개인 최고 기록 실데이터 + legacy 지도 삭제 | BLOCKED | `merge: #83 B4b · #84 B4c · #85 B5 · CONFIRMED: D6` | — | `feat/86-records-data` | #89 |
 | B7 | #87 | 누적 랭킹·홈 요약 실데이터 | BLOCKED | `merge: #85 B5 · CONFIRMED: D6 · D7` | — | `feat/87-ranking-home-data` | #89 |
 | B8 | #88 | 설정 실데이터·회원 탈퇴 transaction·로그아웃 통합 | BLOCKED | `merge: #81 B3 · #85 B5 · CONFIRMED: D11` | — | `feat/88-settings-withdraw` | #89 |
@@ -41,12 +41,24 @@ MVP backend 구현 Issue 의 담당·상태 표다. 화면(UI/mock) 구현 이�
 
 **담당 칸은 비어 있다. READY 가 된 Issue 부터 담당자가 배정한다.**
 
-## 지금 상태 (2026-09-15 snapshot)
+## 지금 상태 (2026-09-16 snapshot · `origin/develop` = `175dca4`)
 
-- 구현 Issue 11개가 전부 `BLOCKED` 다. **READY 인 구현 Issue 는 아직 없다.**
-- #78 ledger 에서 `CONFIRMED` 는 **D4**(닉네임 2~10자)와 **MAP**(NAVER Maps provider) 둘뿐이고, D1 · D2 · D3-A · D3-B · D5 · D6 · D7 · D8 · D9 · D10 · D11 · D12 · D13 · D14 는 `OPEN` 이다.
-- 그래서 지금 막혀 있는 것은 merge 선행이 아니라 **결정(D)** 이다. merge 선행이 없는 #79(D1 · D2 · D3-A · D12)와 #82(D9 · D10 · D12)가 결정만 끝나면 먼저 풀린다.
-- 이 절은 snapshot 이라 금방 낡는다. **현재 값은 #78 본문 ledger 에서 확인한다.**
+- **결정(D)으로 막힌 Issue 는 하나도 없다.** #78 ledger 는 `CONFIRMED 16 · OPEN 0 · SUPERSEDED 1`(D12 1차)이다. 남은 것은 전부 **merge 선행**이다.
+- develop 에 들어간 구현: **#79 · #80 · #81 · #82 · #84 · #83**(순서대로 squash `e80fd7e` · `e1395e3` · `401478a` · `9798339` · `e0f1ef4` · `175dca4`). 승격 PR 전까지 Issue 는 open 으로 남는다.
+- **지금 착수 가능한 것은 #85 하나다.** 나머지 넷은 #85 를 기다린다.
+
+```
+#85  →  { #86 · #87 · #88 }  →  #89
+```
+
+- **#85 가 merge 되면 #86 · #87 · #88 셋이 한꺼번에 열린다** — 세 명이 동시에 붙을 수 있는 지점이라, 그 전까지는 #85 가 전체 일정의 병목이다.
+- 아직 브랜치가 없는 Issue: #85 · #86 · #87 · #88 · #89.
+- B 트랙과 **병렬로 가능한 작업**(merge 선행과 무관):
+  - #79 의 DB · OAuth 실검증 — 빈 `postgres:17` 에 migration `0000`~`0003` 순차 적용 + 로그인 1회. #92 merge 시점에 수행하지 못했고 **#89 전에 반드시 필요**하다
+  - NAVER Console 의 integration · production Web 서비스 URL 등록과 Vercel env(#78 D3-B · PR #96 본문 상단)
+  - `.env.example` 에 `NEXT_PUBLIC_NAVER_MAP_KEY_ID` 이름 추가(값 없이)
+  - Vercel Deployment Protection — develop branch alias 가 SSO 뒤라 #89 의 integration 검증이 막힌다
+- 이 절은 snapshot 이라 금방 낡는다. **현재 값은 #78 본문 ledger 와 각 Issue 본문에서 확인한다.**
 
 ## B0(#78)는 구현 Issue 가 아니다
 
