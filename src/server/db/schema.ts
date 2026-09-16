@@ -1,3 +1,5 @@
+import "server-only";
+
 import { sql } from "drizzle-orm";
 import {
   check,
@@ -24,17 +26,6 @@ import {
  *
  * enum 타입 대신 `text` + CHECK 을 쓴다. 값이 늘어날 때 migration 이 단순하다.
  *
- * ---
- *
- * **이 파일만 `import "server-only"` 로 시작하지 않는다.** `src/server/**` 의 나머지 모듈은
- * 전부 붙어 있다. 이유는 `drizzle.config.ts` 가 이 파일을 가리키고, drizzle-kit 은 Next 밖에서
- * 도는 CLI 라 Next 내부 alias 인 `server-only` 를 해석하지 못하기 때문이다
- * (`Cannot find module 'server-only'` 로 `db:generate` 가 죽는다). #79 가 `server-only` 를
- * dependency 로 추가하는 것을 금지하므로 이 파일에서만 뺐다.
- *
- * 안전성은 그대로다 — 이 파일은 테이블 메타데이터뿐이고 secret · 접속 · 쿼리가 없다.
- * 실제 DB 에 닿는 `client.ts` 가 `server-only` 를 들고 있어서, 클라이언트 컴포넌트가 DB 로
- * 가려고 하면 여전히 빌드가 깨진다. (`modify/2026-09-16-auth.md` 6번)
  */
 
 /** 저장되는 소셜 로그인 제공자. `oauth_accounts` · `auth_sessions` 가 공유한다. */
