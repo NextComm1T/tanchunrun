@@ -14,7 +14,6 @@ import { MOCK_NICKNAME, RUNNING_ROUTE } from "./mock";
 import { MyRankCard } from "./MyRankCard";
 import { RunMapCard } from "./RunMapCard";
 import { useGeolocationReady } from "./useGeolocationReady";
-import { computeViewBox, MAX_ZOOM, MIN_ZOOM, stepZoom } from "./zoom";
 
 /** 카운트다운 숫자와 간격(디자인 L1074-1086). `0` 은 "GO!" 를 띄우는 자리다. */
 const COUNTDOWN_START = 3;
@@ -52,7 +51,6 @@ export function RunTab({ hasActiveRun }: RunTabProps) {
   /** `null` 이면 카운트다운 중이 아니다. 홈과 카운트다운을 가르는 값이기도 하다. */
   const [countdown, setCountdown] = useState<number | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(MIN_ZOOM);
 
   /**
    * 카운트다운이 끝나는 순간의 처리. 순서가 중요하다(D11 · D14).
@@ -151,12 +149,7 @@ export function RunTab({ hasActiveRun }: RunTabProps) {
         <RunMapCard
           gps={gpsState}
           startError={startError}
-          viewBox={computeViewBox(zoom)}
-          canZoomIn={zoom < MAX_ZOOM}
-          canZoomOut={zoom > MIN_ZOOM}
-          onZoomIn={() => setZoom((current) => stepZoom(current, 1))}
-          onZoomOut={() => setZoom((current) => stepZoom(current, -1))}
-          onZoomReset={() => setZoom(MIN_ZOOM)}
+          position={firstFix}
           onStart={handleStart}
         />
 
