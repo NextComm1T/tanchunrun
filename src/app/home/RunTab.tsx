@@ -6,11 +6,11 @@ import { useCallback, useEffect, useState } from "react";
 import { requestPersistentStorage, saveTrackerRecord } from "@/client/tracker";
 import { AppShell } from "@/components/shared/AppShell";
 import { BottomNav } from "@/components/shared/BottomNav";
+import type { HomeSummary } from "@/server/rankingView";
 import { startRun } from "@/server/runs/actions";
 
 import { Countdown } from "./Countdown";
 import { HomeHeader } from "./HomeHeader";
-import { MOCK_NICKNAME, RUNNING_ROUTE } from "./mock";
 import { MyRankCard } from "./MyRankCard";
 import { RunMapCard } from "./RunMapCard";
 import { useGeolocationReady } from "./useGeolocationReady";
@@ -20,6 +20,9 @@ const COUNTDOWN_START = 3;
 const TICK_MS = 1000;
 /** "GO!" 를 이만큼 보여 준 뒤 러닝 진행 화면으로 넘어간다(디자인 L1081). */
 const GO_HOLD_MS = 900;
+
+/** 카운트다운이 끝나면 가는 곳(#40). */
+const RUNNING_ROUTE = "/running";
 
 /** `startRun` 실패 사유별 문구. 원인 코드를 그대로 보이지 않는다. */
 const START_ERROR_MESSAGES = {
@@ -31,6 +34,8 @@ const START_ERROR_MESSAGES = {
 type RunTabProps = {
   /** 서버가 확인한 진행 중 러닝 여부. 있으면 새로 시작할 수 없다(P7). */
   hasActiveRun: boolean;
+  /** 인사 닉네임 · 내 탄천 순위(#87). `/ranking` 과 같은 조회에서 온다. */
+  summary: HomeSummary;
 };
 
 /**
@@ -43,7 +48,7 @@ type RunTabProps = {
  *
  * GPS 준비 여부는 이제 **실제 권한 · 측위**다(#81). `?gps=` 쿼리 계약은 없앴다.
  */
-export function RunTab({ hasActiveRun }: RunTabProps) {
+export function RunTab({ hasActiveRun, summary }: RunTabProps) {
   const router = useRouter();
 
   const { state: gpsState, firstFix, retry: retryGps } = useGeolocationReady();
@@ -139,7 +144,7 @@ export function RunTab({ hasActiveRun }: RunTabProps) {
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
         <div className="shrink-0 px-1 pb-3">
           <h1 className="text-[22px] leading-[1.3] font-extrabold tracking-[-0.5px]">
-            안녕하세요, {MOCK_NICKNAME}님
+            안녕하세요, {summary.nickname}님
           </h1>
           <p className="mt-[3px] text-sm font-medium text-muted">
             오늘도 탄천에서 달려볼까요?
@@ -153,7 +158,11 @@ export function RunTab({ hasActiveRun }: RunTabProps) {
           onStart={handleStart}
         />
 
-        <MyRankCard />
+        <MyRankCard
+          rank={summary.rank}
+          total={summary.total}
+          tancheonDistanceM={summary.tancheonDistanceM}
+        />
       </div>
     </AppShell>
   );
