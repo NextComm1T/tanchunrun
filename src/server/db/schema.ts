@@ -3,7 +3,9 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import {
   check,
+  date,
   index,
+  integer,
   pgTable,
   primaryKey,
   text,
@@ -48,6 +50,20 @@ export type AccountState = (typeof ACCOUNT_STATES)[number];
  */
 export const CONSENT_TYPES = ["privacy_collection_use"] as const;
 export type ConsentType = (typeof CONSENT_TYPES)[number];
+
+/**
+ * 러닝 세션의 진행 상태(#81). `active` 는 계정당 하나뿐이고 DB 가 그것을 보장한다(P7).
+ * 종료 처리(`finished` 로의 전이)는 #85 가 한다.
+ */
+export const RUN_STATUSES = ["active", "finished"] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+/**
+ * 종료 후 저장 진행 상태(#85 가 채운다). `active` 인 동안에는 null 이다.
+ * `finished` + `pending`/`failed` 는 재시도 대상이라 `active` 와 구분된다.
+ */
+export const RUN_SAVE_STATES = ["pending", "saved", "failed"] as const;
+export type RunSaveState = (typeof RUN_SAVE_STATES)[number];
 
 /**
  * CHECK 제약에 쓸 `'a', 'b'` 목록. 허용값이 위 상수 배열 한 곳에서만 나오게 한다.
@@ -136,6 +152,86 @@ export const consents = pgTable(
     check(
       "consents_consent_type_check",
       sql`${table.consentType} in (${inList(CONSENT_TYPES)})`,
+    ),
+  ],
+);
+
+/**
+ * 러닝 세션(#81 · D8 · D14).
+ *
+ * **이 테이블의 핵심은 `run_sessions_active_user_unique` 하나다.** 「계정당 진행 중인 러닝은
+ * 최대 1개」(P7)를 앱이 아니라 **DB 가** 보장한다. 앱이 먼저 조회해서 없으면 INSERT 하는
+ * 방식은 두 기기가 동시에 시작 버튼을 눌렀을 때 둘 다 통과한다. partial unique index 는
+ * 반드시 한쪽만 통과시키고, 진 쪽은 `23505` 를 받아 `active_exists` 로 바뀐다.
+ *
+ * **tracker(D14 — single writer)**: 지금 측정을 올릴 수 있는 기기는 하나뿐이다. 서버는 어느
+ * 기기가 tracker 인지 모르고 `tracker_generation` + `tracker_token_hash` 만 갖는다. client 가
+ * IndexedDB 에 든 token 으로 자기가 writer 인지 판정한다. 다른 기기가 「이 기기에서 이어서
+ * 측정」을 고르면 generation 이 1 오르고 token 이 바뀌어 이전 generation 은 봉인된다.
+ * **자동 takeover 는 없다** — reload · 재로그인은 generation 을 바꾸지 않는다.
+ *
+ * auth session token 과 같은 방식으로 **해시만 저장**한다. DB 가 통째로 새도 유효한 tracker
+ * token 을 만들어 낼 수 없다.
+ *
+ * 결과 컬럼(`zone_version` … `saved_at`)은 **#85 가 채운다.** 여기서는 자리만 만들고 값의
+ * 의미를 고정하지 않는다 — 그래서 `rank_snapshot_kind` 에 CHECK 을 걸지 않았다. 값 집합은
+ * #85 소유라 지금 박아 두면 #85 를 묶는다.
+ */
+export const runSessions = pgTable(
+  "run_sessions",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    saveState: text("save_state"),
+
+    /** 서버 시각이다. 경과 시간을 client 시계로 재지 않는다. */
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    finishReceivedAt: timestamp("finish_received_at", { withTimezone: true }),
+
+    /** 시작 시각의 Asia/Seoul 날짜. 자정을 넘겨 달려도 시작일로 묶인다. */
+    runDate: date("run_date").notNull(),
+
+    // ── 결과 컬럼. #85 가 채운다 ──────────────────────────────────────────
+    zoneVersion: text("zone_version"),
+    totalDistanceM: integer("total_distance_m"),
+    tancheonDistanceM: integer("tancheon_distance_m"),
+    durationSec: integer("duration_sec"),
+    avgPaceSecPerKm: integer("avg_pace_sec_per_km"),
+    rankSnapshot: integer("rank_snapshot"),
+    rankSnapshotKind: text("rank_snapshot_kind"),
+    /** 갱신된 개인 최고 기록 항목의 이름들. */
+    pbFlags: text("pb_flags").array(),
+    savedAt: timestamp("saved_at", { withTimezone: true }),
+
+    // ── tracker(D14) ────────────────────────────────────────────────────
+    trackerGeneration: integer("tracker_generation").notNull().default(1),
+    /** 현재 generation tracker token 의 SHA-256 hex. raw token 은 저장하지 않는다. */
+    trackerTokenHash: text("tracker_token_hash").notNull(),
+  },
+  (table) => [
+    index("run_sessions_user_id_idx").on(table.userId),
+    /**
+     * 계정당 진행 중 1개(P7). **부분 index 여야 한다** — 끝난 세션까지 덮으면 한 사람이
+     * 러닝을 두 번 할 수 없게 된다.
+     */
+    uniqueIndex("run_sessions_active_user_unique")
+      .on(table.userId)
+      .where(sql`${table.status} = 'active'`),
+    check(
+      "run_sessions_status_check",
+      sql`${table.status} in (${inList(RUN_STATUSES)})`,
+    ),
+    check(
+      "run_sessions_save_state_check",
+      sql`${table.saveState} is null or ${table.saveState} in (${inList(RUN_SAVE_STATES)})`,
+    ),
+    check(
+      "run_sessions_tracker_generation_check",
+      sql`${table.trackerGeneration} >= 1`,
     ),
   ],
 );

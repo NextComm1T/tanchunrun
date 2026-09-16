@@ -3,7 +3,8 @@ import Link from "next/link";
 
 import otterIcon from "@assets/otter-icon.png";
 
-import { GPS_BADGE_LABEL, type GpsState } from "./mock";
+import { GPS_BADGE_LABEL } from "./gps";
+import type { GeolocationReadyState } from "./useGeolocationReady";
 
 /**
  * 홈 달리기 탭 전용 상단(디자인 L686-702).
@@ -14,7 +15,7 @@ import { GPS_BADGE_LABEL, type GpsState } from "./mock";
  *
  * 설정은 탭이 아니라 이 기어로 들어간다(`modify/2026-09-14.md` 1번).
  */
-export function HomeHeader({ gps }: { gps: GpsState }) {
+export function HomeHeader({ gps }: { gps: GeolocationReadyState }) {
   const isReady = gps === "ready";
 
   return (

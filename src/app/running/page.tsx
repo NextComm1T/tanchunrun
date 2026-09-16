@@ -1,4 +1,10 @@
+import { redirect } from "next/navigation";
+
 import { AppShell } from "@/components/shared/AppShell";
+import { getViewer } from "@/server/auth/session";
+import { getActiveRun } from "@/server/runs/actions";
+
+import { TrackerGate } from "./TrackerGate";
 import { RunMap } from "./RunMap";
 import { RunStats } from "./RunStats";
 import { RunStatusBar } from "./RunStatusBar";
@@ -29,6 +35,16 @@ function resolveVariant(raw: string | string[] | undefined): RunningVariant {
 export default async function RunningPage({
   searchParams,
 }: PageProps<"/running">) {
+  const viewer = await getViewer();
+  if (!viewer) redirect("/login");
+
+  /*
+    D8 — 서버가 viewer 의 active run 을 직접 조회한다. URL 에 sessionId 가 없으므로
+    남의 세션 id 를 넣어 볼 표면 자체가 없다. 진행 중인 러닝이 없으면 홈으로 보낸다.
+  */
+  const active = await getActiveRun();
+  if (!active) redirect("/home");
+
   const { state } = await searchParams;
   const snapshot = getSnapshot(resolveVariant(state));
 
@@ -37,8 +53,15 @@ export default async function RunningPage({
     // bottom 없음 — 탭바가 없는 화면이고, 나가는 길은 종료 슬라이드뿐이다.
     // padded={false} — 블록마다 가로 여백이 20px · 16px 로 달라 각자 준다.
     <AppShell padded={false}>
+      <TrackerGate
+        userId={viewer.userId}
+        sessionId={active.sessionId}
+        trackerGeneration={active.trackerGeneration}
+      />
+
+      {/* 경과 시간은 서버 `started_at` 에서 센다 — client 시계나 mock 값이 아니다. */}
       <RunStatusBar
-        elapsedSec={snapshot.elapsedSec}
+        startedAt={active.startedAt}
         gpsLost={snapshot.gpsLost}
         inZone={snapshot.inZone}
       />

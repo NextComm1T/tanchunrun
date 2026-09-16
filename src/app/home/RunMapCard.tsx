@@ -1,14 +1,15 @@
+import Link from "next/link";
+
 import { TancheonMap } from "@/components/shared/TancheonMap";
 
-import {
-  GPS_CHECKING_NOTICE,
-  MOCK_USER_PIN,
-  START_BUTTON_LABEL,
-  type GpsState,
-} from "./mock";
+import { GPS_NOTICE, START_BUTTON_LABEL } from "./gps";
+import { MOCK_USER_PIN } from "./mock";
+import type { GeolocationReadyState } from "./useGeolocationReady";
 
 type RunMapCardProps = {
-  gps: GpsState;
+  gps: GeolocationReadyState;
+  /** 러닝을 시작하지 못한 이유. `startRun` 이 실패했을 때만 값이 있다. */
+  startError?: string | null;
   /** 화면이 배율에서 계산해 넘긴다 — 공용 지도는 `viewBox` 를 받기만 한다. */
   viewBox: string;
   canZoomIn: boolean;
@@ -41,6 +42,7 @@ const MAP_BUTTON =
  */
 export function RunMapCard({
   gps,
+  startError,
   viewBox,
   canZoomIn,
   canZoomOut,
@@ -134,16 +136,50 @@ export function RunMapCard({
           </li>
         </ul>
 
-        {/* GPS 확인 중 딤(L724-730). 정본의 비준비 상태는 이 하나뿐이다. */}
+        {/*
+          준비되지 않았을 때 지도를 덮는 안내(L724-730 구조).
+
+          권한 거부일 때만 위치정보 화면으로 가는 길을 함께 준다(#81) — 사용자가 브라우저
+          설정을 고쳐야 하는 상황이라 「다시 시도」로는 풀리지 않는다. 측위 실패는 자리를
+          옮기면 풀릴 수 있어 안내만 한다.
+        */}
         {isReady ? null : (
           <div className="absolute inset-0 z-[6] flex items-center justify-center bg-foreground/26 p-[26px]">
-            <p className="w-full rounded-2xl bg-surface px-5 py-[22px] text-center text-[22px] leading-[1.45] font-extrabold shadow-modal">
-              {GPS_CHECKING_NOTICE[0]}
-              <br />
-              {GPS_CHECKING_NOTICE[1]}
-            </p>
+            <div className="w-full rounded-2xl bg-surface px-5 py-[22px] text-center shadow-modal">
+              <p
+                role={gps === "checking" ? undefined : "alert"}
+                className="text-[22px] leading-[1.45] font-extrabold"
+              >
+                {GPS_NOTICE[gps][0]}
+                <br />
+                {GPS_NOTICE[gps][1]}
+              </p>
+
+              {gps === "denied" ? (
+                <Link
+                  href="/settings/location"
+                  className="mt-3.5 inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-base font-extrabold text-on-primary"
+                >
+                  위치정보 설정 보기
+                </Link>
+              ) : null}
+            </div>
           </div>
         )}
+
+        {/*
+          시작에 실패했을 때(#81). 이미 진행 중인 러닝이 있거나 서버가 세션을 만들지 못한
+          경우다 — 카운트다운을 되돌리고 이유를 보여 준다. 디자인에 없는 요소라 로그인 ·
+          동의 실패 안내와 같은 토큰을 쓴다.
+        */}
+        {startError ? (
+          <p
+            role="alert"
+            className="absolute right-[calc(28px+3%)] bottom-[104px] left-[calc(28px+3%)] z-[7] rounded-md border-[1.5px] border-error-border bg-error-soft px-4 py-3 text-center text-sm font-bold text-error"
+          >
+            {startError}
+          </p>
+        ) : null}
 
         {/* GPS 확인 전에는 누를 수 없다(P1). 정본도 disabled 로 막고 색을 바꾼다(L1302-1305).
             그림자는 정본이 0 6px 18px / 0.3, 토큰(shadow-primary)은 0 4px 12px / 0.25 다. */}

@@ -1,5 +1,8 @@
+import { redirect } from "next/navigation";
+
 import { AppShell } from "@/components/shared/AppShell";
 import { Header } from "@/components/shared/Header";
+import { getViewer } from "@/server/auth/session";
 
 import { LogoutRow } from "./LogoutRow";
 import {
@@ -43,25 +46,22 @@ function resolveLocationStatus(
   return value === "denied" ? "denied" : "granted";
 }
 
-/** 진행 중인 러닝 세션(`docs/06-data.md:22`) — 러닝 화면(#40)이 아직 없어 쿼리로 둔다. */
-function isSessionActive(raw: string | string[] | undefined): boolean {
-  const value = Array.isArray(raw) ? raw[0] : raw;
-
-  return value === "active";
-}
+/*
+  진행 중인 러닝은 더 이상 쿼리로 흉내내지 않는다 — 서버가 `getViewer().hasActiveRun` 으로
+  실제 세션을 본다(#81 · P12). 로그아웃 차단도 화면이 아니라 `signOut()` 이 서버에서 한다.
+*/
 
 export default async function SettingsPage({
   searchParams,
 }: PageProps<"/settings">) {
-  const {
-    state,
-    session,
-    location: locationParam,
-  } = await searchParams;
+  const { state, location: locationParam } = await searchParams;
+
+  const viewer = await getViewer();
+  if (!viewer) redirect("/login");
 
   const viewState = resolveState(state);
   const locationStatus = resolveLocationStatus(locationParam);
-  const blocked = isSessionActive(session);
+  const blocked = viewer.hasActiveRun;
 
   const profile = {
     ...MOCK_PROFILE,
