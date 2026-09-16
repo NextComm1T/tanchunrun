@@ -1,41 +1,35 @@
-"use client";
-
-type Provider = "kakao" | "google";
-
 /**
- * 소셜 로그인 시작점.
+ * 소셜 로그인 시작점(F8 · R13 · #79).
  *
- * TODO(F8 · R13): 카카오 · 구글 OAuth 를 연동한다. 인증에 실패하거나 사용자가
- * 취소하면 `/login?error=cancelled` · `/login?error=failed` 로 돌아오게 해서
- * 이 화면의 에러 상태를 그대로 쓴다.
+ * 버튼이 아니라 **평범한 링크**다. 누르면 `/api/auth/<provider>/start` 로 전체 페이지 이동하고,
+ * 그 route handler 가 state · nonce · PKCE verifier 를 심은 뒤 provider 로 302 한다.
  *
- * 아직 연동 전이므로 아무 일도 하지 않는다 — 가짜 성공이나 가짜 실패로
- * 흉내내지 않는다.
+ * - `next/link` 를 쓰지 않는다 — 저 경로는 화면이 아니라 route handler 라서 클라이언트 라우터가
+ *   가로채면 안 되고, typed routes 의 화면 목록에도 없다.
+ * - `<a>` 라서 이 조각은 더 이상 클라이언트 컴포넌트가 아니다. 이동은 브라우저가 하므로
+ *   JS 가 실리기 전에 눌러도 동작한다. 모양은 `<button>` 일 때와 같다(클래스 그대로).
+ *
+ * 실패 · 취소하면 callback 이 `/login?error=cancelled` · `/login?error=failed` 로 돌려보내고,
+ * 이 화면(`page.tsx`)이 이미 그 값을 읽어 안내를 띄운다.
  */
-function signInWith(provider: Provider) {
-  void provider;
-}
-
 export function SocialLoginButtons() {
   return (
     <>
-      <button
-        type="button"
-        onClick={() => signInWith("kakao")}
+      <a
+        href="/api/auth/kakao/start"
         className="flex h-[58px] w-full items-center gap-3 rounded-xl bg-kakao px-[22px] text-button font-extrabold text-foreground shadow-button"
       >
         <KakaoIcon />
         <span className="flex-1 text-center">카카오로 계속하기</span>
-      </button>
+      </a>
 
-      <button
-        type="button"
-        onClick={() => signInWith("google")}
+      <a
+        href="/api/auth/google/start"
         className="flex h-[58px] w-full items-center gap-3 rounded-xl border-[1.5px] border-border bg-surface px-[22px] text-button font-extrabold text-foreground shadow-button-soft"
       >
         <GoogleIcon />
         <span className="flex-1 text-center">Google로 계속하기</span>
-      </button>
+      </a>
     </>
   );
 }
