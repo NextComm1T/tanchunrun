@@ -14,11 +14,14 @@
  *
  * `src/server` 의 대칭으로 `src/client` 에 둔다 — 홈과 러닝 두 화면이 쓰고 #83 · #85 도 쓸
  * 브라우저 전용 모듈이라 어느 한 화면 폴더에 넣을 수 없다.
+ *
+ * DB 열기 · 버전 · store 이름은 `idb.ts` 가 쥔다(#83 이 버퍼 store 를 더하며 옮겼다) —
+ * 두 모듈이 서로 다른 버전으로 같은 DB 를 열면 한쪽이 통째로 실패한다.
  */
 
-const DB_NAME = "tancheonrun";
-const DB_VERSION = 1;
-const STORE_NAME = "tracker";
+import { STORES, withStore } from "./idb";
+
+export { requestPersistentStorage } from "./idb";
 
 /**
  * 한 기기가 들고 있는 tracker 기록.
@@ -36,42 +39,6 @@ export type TrackerRecord = {
 /** 한 계정에 진행 중 러닝이 하나뿐이라 레코드도 하나뿐이다. */
 const RECORD_KEY = "current";
 
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME);
-      }
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function withStore<T>(
-  mode: IDBTransactionMode,
-  run: (store: IDBObjectStore) => IDBRequest<T>,
-): Promise<T> {
-  const db = await openDb();
-
-  try {
-    return await new Promise<T>((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, mode);
-      const request = run(tx.objectStore(STORE_NAME));
-
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-      tx.onabort = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
-  }
-}
-
 /**
  * 러닝을 시작한 기기가 **이동하기 전에** 부른다.
  *
@@ -80,7 +47,9 @@ async function withStore<T>(
  * 「이 기기에서 이어서 측정」으로 인수하기 전까지 그 러닝을 이어갈 수 없다.
  */
 export async function saveTrackerRecord(record: TrackerRecord): Promise<void> {
-  await withStore("readwrite", (store) => store.put(record, RECORD_KEY));
+  await withStore(STORES.tracker, "readwrite", (store) =>
+    store.put(record, RECORD_KEY),
+  );
 }
 
 /**
@@ -92,7 +61,7 @@ export async function saveTrackerRecord(record: TrackerRecord): Promise<void> {
 export async function readTrackerRecord(
   userId: string,
 ): Promise<TrackerRecord | null> {
-  const stored = await withStore("readonly", (store) =>
+  const stored = await withStore(STORES.tracker, "readonly", (store) =>
     store.get(RECORD_KEY),
   ).catch(() => undefined);
 
@@ -119,21 +88,6 @@ export async function isCurrentTracker(input: {
     record.sessionId === input.sessionId &&
     record.trackerGeneration === input.trackerGeneration
   );
-}
-
-/**
- * 저장소가 비워지지 않도록 요청한다(best-effort).
- *
- * **실패하거나 지원하지 않아도 러닝을 실패시키지 않는다**(D11). 저장소 증발은 보장을 걸 수
- * 없는 잔여 위험이고, 그 경우의 해소 경로는 사용자가 「이 기기에서 이어서 측정」으로
- * 인수하는 것이다.
- */
-export async function requestPersistentStorage(): Promise<void> {
-  try {
-    await navigator.storage?.persist?.();
-  } catch {
-    // 무시한다. 러닝을 막을 이유가 아니다.
-  }
 }
 
 function isTrackerRecord(value: unknown): value is TrackerRecord {

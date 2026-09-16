@@ -1,109 +1,104 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import otterGps from "@assets/otter-gps.png";
+
 import {
-  MAP_HEIGHT,
-  MAP_WIDTH,
-  TancheonMap,
-  type MapPoint,
-  type RouteSegment,
-} from "@/components/shared/TancheonMap";
+  NaverTancheonMap,
+  type MapZoomState,
+  type NaverTancheonMapHandle,
+} from "@/components/shared/NaverTancheonMap";
+import { TANCHEON_ZONE, type RoutePoint } from "@/domain/measure";
 
 /**
  * 러닝 중 지도와 그 위에 얹히는 것들(디자인 L228-262).
  *
- * `TancheonMap`(#33)은 지도만 그린다 — 확대 · 축소 · 재중심 버튼, 범례, GPS 경고
- * 카드, 딤은 디자인에서 지도 바깥의 형제 요소라 이 화면이 그린다. 확대 값 계산도
- * 화면 몫이다(`src/components/shared/TancheonMap.tsx` 머리 주석).
+ * 지도는 공용 `NaverTancheonMap`(#84)이다 — 실제 위경도를 그린다. 확대 · 축소 · 재중심
+ * 버튼, 범례, GPS 경고 카드, 딤은 디자인에서 지도 **바깥**의 형제 요소라 이 화면이 그린다.
  *
- * `className` props 를 받지 않으므로 크기 상자는 여기서 만들고 지도를 `inset-0` 로 깐다.
+ * **SDK 가 못 떠도 이 화면은 계속 돈다.** 지도가 fallback 을 보이는 동안에도 측정 · 업로드 ·
+ * 수치 표시는 멈추지 않는다(#83) — 지도는 보조 표시이고 러닝의 진행 조건이 아니다.
  *
- * 디자인 L258 의 "GPS 복구 시뮬레이션 →" 버튼은 **넣지 않는다.** 디자인 캔버스에서
- * 상태를 보여 주려고 둔 데모 장치이고, 이슈 #40 의 제외 범위다.
+ * 디자인 L258 의 "GPS 복구 시뮬레이션 →" 버튼은 넣지 않는다. 디자인 캔버스에서 상태를
+ * 보여 주려고 둔 데모 장치다.
  */
 
 type RunMapProps = {
-  route: readonly RouteSegment[];
-  userPin?: MapPoint;
+  /** `measure()` 가 낸 경로(#82). 정렬 · 끊김이 이미 반영돼 있다. */
+  route: readonly RoutePoint[];
+  /** 현재 위치. 신호를 잃은 동안에는 마지막 위치에 고정된다. */
+  marker: { lat: number; lng: number } | null;
   gpsLost: boolean;
 };
 
 /**
- * 확대 단계와 중심(원본 L1134-1141 · L1178-1180).
+ * 지도 위에 뜨는 버튼. 시각 크기를 두고 터치 영역만 ::after 로 넓힌다.
  *
- * 중심 x 가 좌표계 한가운데(170)가 아니라 163 인 것은 디자인 그대로다 — 경로 쪽으로
- * 조금 치우쳐 있다.
+ * `relative` 를 여기 넣지 않는 이유는 홈(`RunMapCard`)과 같다 — 재중심 버튼의 `absolute` 와
+ * 겹쳐 버튼이 엉뚱한 자리에 놓인다.
  */
-const ZOOM_MIN = 1;
-const ZOOM_MAX = 2.5;
-const ZOOM_STEP = 0.5;
-const ZOOM_CENTER: MapPoint = { x: 163, y: 110 };
+const MAP_BUTTON =
+  "flex items-center justify-center bg-surface/94 after:absolute after:content-[''] disabled:text-disabled";
 
-function computeViewBox(zoom: number): string {
-  const width = MAP_WIDTH / zoom;
-  const height = MAP_HEIGHT / zoom;
-  // 확대해도 좌표계 밖으로 나가지 않게 가둔다.
-  const x = Math.max(0, Math.min(MAP_WIDTH - width, ZOOM_CENTER.x - width / 2));
-  const y = Math.max(0, Math.min(MAP_HEIGHT - height, ZOOM_CENTER.y - height / 2));
+export function RunMap({ route, marker, gpsLost }: RunMapProps) {
+  const mapRef = useRef<NaverTancheonMapHandle | null>(null);
+  const [zoomState, setZoomState] = useState<MapZoomState | null>(null);
 
-  return `${x.toFixed(1)} ${y.toFixed(1)} ${width.toFixed(1)} ${height.toFixed(1)}`;
-}
-
-/**
- * 34×34 버튼 두 개가 맞붙은 스택이다. 시각 크기는 디자인대로 두고 터치 영역만
- * 넓히되(이슈 #40 결정 이력), 서로 겹치지 않게 **바깥쪽으로만** 늘린다 —
- * 가로는 48px 을 채우고 세로는 맞붙은 변을 침범하지 않는다(`modify/` 3번).
- */
-const ZOOM_BUTTON_BASE =
-  "relative flex size-[34px] items-center justify-center bg-surface/94 text-[19px] font-extrabold text-foreground after:absolute after:-inset-x-[7px] after:content-[''] disabled:text-disabled";
-
-export function RunMap({ route, userPin, gpsLost }: RunMapProps) {
-  const [zoom, setZoom] = useState(ZOOM_MIN);
-
-  const canZoomIn = zoom < ZOOM_MAX;
-  const canZoomOut = zoom > ZOOM_MIN;
+  // 매 렌더마다 새 객체를 넘기면 마커를 다시 만든다. 좌표 · 종류가 바뀔 때만 새로 만든다.
+  const mapMarker = useMemo(
+    () =>
+      marker
+        ? ({
+            lat: marker.lat,
+            lng: marker.lng,
+            kind: gpsLost ? ("gps-lost" as const) : ("current" as const),
+          } as const)
+        : null,
+    [marker, gpsLost],
+  );
 
   return (
     <div className="relative mx-4 min-h-0 flex-1 overflow-hidden rounded-2xl border-[1.5px] border-border shadow-card">
       <div className="absolute inset-0">
-        <TancheonMap
+        <NaverTancheonMap
+          ref={mapRef}
           route={route}
-          userPin={userPin}
-          endMarker={gpsLost ? "gps-lost" : "running"}
-          viewBox={computeViewBox(zoom)}
+          marker={mapMarker}
+          zone={TANCHEON_ZONE}
+          label="러닝 경로 지도"
+          onZoomChange={setZoomState}
         />
       </div>
 
-      {/* 확대 · 축소 (L231-234) */}
+      {/* 확대 · 축소 (L231-234) — 맞붙은 변을 침범하지 않게 바깥쪽으로만 넓힌다 */}
       <div className="absolute top-3 right-3 flex flex-col rounded-sm shadow-raised">
         <button
           type="button"
           aria-label="지도 확대"
-          disabled={!canZoomIn}
-          onClick={() => setZoom((current) => Math.min(ZOOM_MAX, current + ZOOM_STEP))}
-          className={`${ZOOM_BUTTON_BASE} rounded-t-sm border-b border-border after:-top-[7px] after:bottom-0`}
+          disabled={zoomState !== null && !zoomState.canZoomIn}
+          onClick={() => mapRef.current?.zoomIn()}
+          className={`${MAP_BUTTON} relative size-[34px] rounded-t-sm border-b border-border text-[19px] font-extrabold text-foreground after:-inset-x-[7px] after:-top-[7px] after:bottom-0`}
         >
           +
         </button>
         <button
           type="button"
           aria-label="지도 축소"
-          disabled={!canZoomOut}
-          onClick={() => setZoom((current) => Math.max(ZOOM_MIN, current - ZOOM_STEP))}
-          className={`${ZOOM_BUTTON_BASE} rounded-b-sm after:top-0 after:-bottom-[7px]`}
+          disabled={zoomState !== null && !zoomState.canZoomOut}
+          onClick={() => mapRef.current?.zoomOut()}
+          className={`${MAP_BUTTON} relative size-[34px] rounded-b-sm text-[19px] font-extrabold text-foreground after:-inset-x-[7px] after:top-0 after:-bottom-[7px]`}
         >
           −
         </button>
       </div>
 
-      {/* 재중심 (L235-237) — 46×46 이라 ::after 로 48×48 을 채운다 */}
+      {/* 재중심 (L235-237) — 내 위치로 돌아가고 camera follow 를 다시 켠다 */}
       <button
         type="button"
-        aria-label="지도를 처음 배율로"
-        onClick={() => setZoom(ZOOM_MIN)}
-        className="absolute right-3 bottom-3 flex size-[46px] items-center justify-center rounded-lg bg-surface/94 text-primary shadow-raised after:absolute after:-inset-px after:content-['']"
+        aria-label="내 위치로 돌아가기"
+        onClick={() => mapRef.current?.recenter()}
+        className={`${MAP_BUTTON} absolute right-3 bottom-3 size-[46px] rounded-lg text-primary shadow-raised after:-inset-px`}
       >
         <svg
           width="17"
@@ -122,26 +117,26 @@ export function RunMap({ route, userPin, gpsLost }: RunMapProps) {
       </button>
 
       {/* 범례 (L238-246) */}
-      <div className="absolute bottom-3 left-3 rounded-sm bg-surface/90 px-[11px] py-2 shadow-raised">
-        <div className="mb-[5px] flex items-center gap-[7px]">
-          <div
-            className="size-3 shrink-0 rounded-full border-[2.5px] border-primary bg-primary/22"
+      <ul className="absolute bottom-3 left-3 rounded-sm bg-surface/90 px-[11px] py-2 shadow-raised">
+        <li className="mb-[5px] flex items-center gap-[7px]">
+          <span
             aria-hidden="true"
+            className="size-3 shrink-0 rounded-full border-[2.5px] border-primary bg-primary/22"
           />
           <span className="text-caption leading-none font-bold text-foreground">
             내 위치
           </span>
-        </div>
-        <div className="flex items-center gap-[7px]">
-          <div
-            className="h-[7px] w-3 shrink-0 rounded-[3px] border-[1.5px] border-dashed border-primary/60 bg-primary/22"
+        </li>
+        <li className="flex items-center gap-[7px]">
+          <span
             aria-hidden="true"
+            className="h-[7px] w-3 shrink-0 rounded-[3px] border-[1.5px] border-dashed border-primary/60 bg-primary/22"
           />
           <span className="text-caption leading-none font-bold text-foreground">
             Ranking Zone
           </span>
-        </div>
-      </div>
+        </li>
+      </ul>
 
       {/* GPS 유실 — 토스트가 아니라 지도 위 딤 + 경고 카드다 (L247-261) */}
       {gpsLost ? (

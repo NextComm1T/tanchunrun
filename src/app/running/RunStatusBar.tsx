@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { formatElapsed } from "./mock";
+import { formatElapsed } from "./format";
 
 /**
  * 러닝 진행 화면 상단 — 대형 러닝 시간 + GPS · 구역 배지(디자인 L209-227).

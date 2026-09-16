@@ -2,6 +2,10 @@
 
 import { getViewer } from "@/server/auth/session";
 
+import {
+  getOrderedRoutePoints,
+  type StoredRoutePoint,
+} from "./getOrderedRoutePoints";
 import { createRun, findActiveRun, takeoverTracker } from "./session";
 
 /**
@@ -110,21 +114,34 @@ export async function takeoverRun(sessionId: string): Promise<TakeoverResult> {
   }
 }
 
-/** 화면이 자기 진행 중 러닝을 물어볼 때. 없으면 `null`. */
-export async function getActiveRun(): Promise<{
+export type ActiveRunView = {
   sessionId: string;
   startedAt: string;
   trackerGeneration: number;
-} | null> {
+  /**
+   * 서버가 이미 받은 경로(#83). **복원의 절반이다** — 나머지 절반인 아직 보내지 못한 점은
+   * 기기의 IndexedDB 버퍼에 있고, 화면이 둘을 합쳐 수치와 선을 다시 만든다.
+   *
+   * 거리 · 페이스 같은 파생값을 함께 내려보내지 않는다. 같은 값을 서버와 화면이 따로 만들면
+   * 갈라지므로 raw 점 하나만 정본으로 둔다.
+   */
+  points: StoredRoutePoint[];
+};
+
+/** 화면이 자기 진행 중 러닝을 물어볼 때. 없으면 `null`. */
+export async function getActiveRun(): Promise<ActiveRunView | null> {
   const viewer = await getViewer();
   if (!viewer) return null;
 
   const active = await findActiveRun(viewer.userId);
   if (!active) return null;
 
+  const { points } = await getOrderedRoutePoints(active.sessionId);
+
   return {
     sessionId: active.sessionId,
     startedAt: active.startedAt.toISOString(),
     trackerGeneration: active.trackerGeneration,
+    points,
   };
 }

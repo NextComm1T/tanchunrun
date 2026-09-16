@@ -1,4 +1,4 @@
-import { formatDistance, formatPace } from "./mock";
+import { formatDistance, formatPace } from "./format";
 
 /**
  * 러닝 중 숫자 3개 — 총 거리 · 탄천 인정 · 현재 페이스(디자인 L263-287).
