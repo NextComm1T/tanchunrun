@@ -35,10 +35,18 @@ src/
 │  ├─ Header.tsx
 │  ├─ BackButton.tsx
 │  ├─ BottomNav.tsx        홈 3개 탭 하단 탭바 (#34)
-│  └─ TancheonMap.tsx      탄천 지도 (#33)
-└─ server/                 서버에서만 도는 코드 (#79)
-   ├─ db/                  schema.ts · client.ts
-   └─ auth/                config · providers · session · identity · handlers · actions
+│  ├─ NaverTancheonMap.tsx 실제 위경도 지도 (#84)
+│  └─ TancheonMap.tsx      일러스트 지도 (#33) — **전환 중. #86 이 지운다**
+├─ client/                 브라우저에서만 도는 공용 모듈
+│  ├─ naverMaps.ts         NAVER Maps SDK 로더 (#84)
+│  └─ tracker.ts           tracker record IndexedDB 저장 (#81)
+├─ domain/                 순수 계산 (#82)
+│  └─ measure/             거리 · Zone · 페이스
+└─ server/                 서버에서만 도는 코드
+   ├─ db/                  schema.ts · client.ts (#79)
+   ├─ auth/                config · providers · session · identity · handlers · actions (#79)
+   ├─ account/             동의 · 닉네임 (#80)
+   └─ runs/                러닝 세션 시작 · 복원 (#81)
 ```
 
 **규칙 하나로 줄이면**: 그 화면에서만 쓰면 화면 폴더 안에, 두 화면 이상이 쓰면 `components/shared/`.
@@ -49,8 +57,9 @@ src/
 
 | 폴더 | 무엇 | 규칙 |
 | --- | --- | --- |
-| `src/domain` | 프레임워크와 무관한 순수 TS. 계산 · 규칙 | React · Next · DB · env 를 import 하지 않는다. **아직 없다 — #82 가 만든다** |
+| `src/domain` | 프레임워크와 무관한 순수 TS. 계산 · 규칙 | React · Next · DB · env 를 import 하지 않는다. `npm test` 대상은 여기뿐이다 |
 | `src/server` | 서버에서만 도는 코드. DB · 인증 · secret | 브라우저로 새어 나가면 안 된다 |
+| `src/client` | 브라우저에서만 도는 공용 모듈. IndexedDB · 외부 SDK | 여러 화면이 쓰는 것만. 한 화면 것은 화면 폴더에 |
 
 **import 방향은 한쪽뿐이다.**
 
@@ -121,9 +130,50 @@ import { BottomNav } from "@/components/shared/BottomNav";
 - 설정은 탭이 아니다 — 각 탭 상단의 기어로 들어간다(`modify/2026-09-14.md` 1번).
 - 달리기 탭이 `/` 가 아니라 `/home` 인 이유는 `modify/2026-09-15-bottomnav.md`.
 
-### `TancheonMap`
+### `NaverTancheonMap` (#84)
 
-러닝 진행(#40) · 결과(#41) · 기록 상세(#45) · 홈 달리기 탭(#42)이 쓰는 탄천 지도(#33). 좌표계는 원본 SVG 그대로 `MAP_WIDTH`×`MAP_HEIGHT`(340×220)이고, 경로 좌표도 이 좌표계의 값이다.
+실제 위경도를 그리는 공용 지도. **새 화면은 이것을 쓴다.**
+
+```tsx
+import { NaverTancheonMap, type NaverTancheonMapHandle } from "@/components/shared/NaverTancheonMap";
+import { TANCHEON_ZONE } from "@/domain/measure";
+
+// 홈 달리기 탭 — 경로 없이 내 위치만
+<NaverTancheonMap ref={mapRef} marker={{ lat, lng, kind: "current" }} zone={TANCHEON_ZONE} />
+
+// 러닝 진행 — 지금까지의 경로 + 현재 위치
+<NaverTancheonMap route={routePoints} marker={{ lat, lng, kind: gpsLost ? "gps-lost" : "current" }} zone={TANCHEON_ZONE} />
+
+// 결과 · 기록 상세 — 끝난 경로
+<NaverTancheonMap route={routePoints} marker={{ lat, lng, kind: "finished", inZone }} zone={TANCHEON_ZONE} />
+```
+
+| props | 뜻 |
+| --- | --- |
+| `route?: readonly RoutePoint[]` | `measure()`(#82)가 낸 경로. `generation → rawSeq → ordinal` 정렬 전제. **generation · segment 가 바뀌는 자리는 선을 잇지 않는다**(P2) |
+| `marker?: MapMarker \| null` | `{ lat, lng, kind, inZone? }`. `kind` 는 `current`(지금 위치 — 홈 · 러닝 중 같은 글리프) · `gps-lost` · `finished`. 색이 `inZone` 으로 갈리는 것은 `finished` 뿐이다 |
+| `zone?: Ring` | 탄천 Ranking Zone 폴리곤. **컴포넌트가 직접 import 하지 않고 화면이 넘긴다** — 안 쓰는 화면이 185정점을 번들에 끌고 오지 않도록 |
+| `label?: string` | 스크린리더가 읽을 이름. 기본 "탄천 지도" |
+| `onStatusChange?` | `loading` · `ready` · `credential` · `network` |
+| `onZoomChange?` | `{ zoom, canZoomIn, canZoomOut }`. 화면의 +/− 버튼 disabled 판정용 |
+| `ref` | `zoomIn()` · `zoomOut()` · `recenter()`. 버튼은 화면이 그리고 이걸로 지도를 움직인다 |
+
+- **표시 전용이다.** 거리 · Zone 판정 · 경계점 · 속도 제외는 전부 `src/domain/measure`(#82)가 한다. 이 컴포넌트에 계산을 넣지 않는다.
+- `inZone` 이 바뀌는 점은 앞뒤 선이 함께 가져서 경계에서 색이 갈린다(R11). 경계점은 `measure()` 가 이미 만들어 준다.
+- 속도 초과 구간(P9)은 **일반 구간과 같은 스타일**이다. `excludedFromPrevReason` 을 선 스타일에 쓰지 않는다.
+- **camera follow 는 내부 동작이다**(D10) — 기본 on · 위치가 바뀌면 최대 2초에 1회 `panTo` · 사용자 pan/zoom 제스처에 off · `recenter()` 로 다시 on. **props 를 늘리지 않는다.**
+- **그리지 않는 것** — 확대 · 축소 · 재중심 버튼, 범례, GPS 안내 카드 · 딤. 디자인에서 지도 바깥 요소라 각 화면이 지도 위에 그린다.
+- **크기는 부모가 정한다** — `size-full` 이라 부모 상자에 높이가 있어야 한다.
+- 실패하면 **지도 영역만** 안내로 바뀐다. SDK 를 못 받으면(`network`) 「다시 시도」가 있고, key · 서비스 URL 문제(`credential`)는 사용자가 할 수 있는 일이 없어 안내만 한다. 어느 쪽이든 그 화면의 나머지 기능은 계속 동작해야 한다.
+- SDK 로더는 `src/client/naverMaps.ts` 다. `layout.tsx` 에 `<script>` 를 넣지 않는다. env 는 `NEXT_PUBLIC_NAVER_MAP_KEY_ID`(#78 D3-B) 하나이고 **값을 저장소에 두지 않는다.**
+
+### `TancheonMap` — 전환 중 (지우는 것은 #86)
+
+러닝 진행(#40) · 결과(#41) · 기록 상세(#45)가 아직 쓰는 **일러스트** 지도(#33). 홈(#42)은 #84 에서 `NaverTancheonMap` 으로 옮겼다.
+
+**새로 쓰지 않는다.** running 은 #83, result 는 #85, 기록 상세는 #86 이 옮기고, 마지막 consumer 가 옮겨진 뒤 #86 이 이 파일과 SVG 좌표 타입을 지운다. 그때까지 **동결**이다.
+
+좌표계는 원본 SVG 그대로 `MAP_WIDTH`×`MAP_HEIGHT`(340×220)이고, 경로 좌표도 이 좌표계의 값이다.
 
 ```tsx
 import { TancheonMap, type RouteSegment } from "@/components/shared/TancheonMap";
@@ -281,4 +331,5 @@ const viewer = await getViewer();   // { userId, accountState, nickname, provide
 
 - **첫 화면 분기 · 가입 흐름** — `/` 는 여전히 `/login` 으로만 보낸다. 로그인 상태 · 가입 중 여부에 따른 분기와 동의 · 닉네임 저장은 #80 이 한다. `layout.tsx` · 루트 `page.tsx` 는 **공유 인프라**라 화면 브랜치에서 건드리지 않는다.
 - **API · 데이터** — 인증 밖의 서버는 아직 없다. 러닝 · 랭킹 · 기록 화면은 mock 데이터로 만든다.
-- **테스트 러너** — `npm test` 없음.
+- **화면 테스트 러너** — `npm test`(Vitest)는 `src/domain` 만 돈다(#82). `src/app` 의 검증은 여전히 lint · build · 브라우저 확인뿐이다.
+- **실지도 확인** — `NEXT_PUBLIC_NAVER_MAP_KEY_ID` 와 NAVER Console 등록이 끝나야 지도가 실제로 뜬다(#78 D3-B). 그전에는 `credential` 안내가 지도 자리에 보이는 것이 정상이다.

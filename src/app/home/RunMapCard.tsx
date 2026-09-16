@@ -1,22 +1,22 @@
 import Link from "next/link";
+import { useMemo, useRef, useState } from "react";
 
-import { TancheonMap } from "@/components/shared/TancheonMap";
+import {
+  NaverTancheonMap,
+  type MapZoomState,
+  type NaverTancheonMapHandle,
+} from "@/components/shared/NaverTancheonMap";
+import { TANCHEON_ZONE } from "@/domain/measure";
 
 import { GPS_NOTICE, START_BUTTON_LABEL } from "./gps";
-import { MOCK_USER_PIN } from "./mock";
 import type { GeolocationReadyState } from "./useGeolocationReady";
 
 type RunMapCardProps = {
   gps: GeolocationReadyState;
   /** 러닝을 시작하지 못한 이유. `startRun` 이 실패했을 때만 값이 있다. */
   startError?: string | null;
-  /** 화면이 배율에서 계산해 넘긴다 — 공용 지도는 `viewBox` 를 받기만 한다. */
-  viewBox: string;
-  canZoomIn: boolean;
-  canZoomOut: boolean;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onZoomReset: () => void;
+  /** 첫 측위(#81). `gps` 가 `ready` 일 때만 값이 있고, 그때만 내 위치를 찍는다. */
+  position: { latitude: number; longitude: number } | null;
   onStart: () => void;
 };
 
@@ -34,24 +34,40 @@ const MAP_BUTTON =
 /**
  * 탄천 Ranking Zone 지도 카드(디자인 L708-753).
  *
- * 지도 자체는 공용 컴포넌트(#33)를 그대로 쓴다. 확대 · 축소 · 재중심 버튼, 범례,
- * GPS 확인 중 딤은 정본에서 지도 바깥의 형제 요소라 여기서 그린다
- * (`src/components/shared/TancheonMap.tsx` 주석).
+ * 지도 자체는 공용 `NaverTancheonMap`(#84)을 쓴다 — 홈이 실제 위치를 가진 첫 화면이라
+ * 일러스트 지도에서 여기부터 옮겼다. 확대 · 축소 · 재중심 버튼, 범례, GPS 안내 딤은
+ * 정본에서 지도 바깥의 형제 요소라 여기서 그린다(`NaverTancheonMap.tsx` 주석).
  *
  * 카드 아래 모서리를 둥글리지 않는 건 내 순위 카드와 한 덩어리로 이어지기 때문이다(L755).
  */
 export function RunMapCard({
   gps,
   startError,
-  viewBox,
-  canZoomIn,
-  canZoomOut,
-  onZoomIn,
-  onZoomOut,
-  onZoomReset,
+  position,
   onStart,
 }: RunMapCardProps) {
   const isReady = gps === "ready";
+
+  /*
+    확대 단계는 이제 지도 인스턴스가 쥔다(NAVER zoom level). 예전에는 화면이 배율에서
+    `viewBox` 를 계산해 넘겼지만, 실지도에는 SVG 좌표계가 없어서 `home/zoom.ts` 를 없앴다.
+    버튼은 디자인대로 여기서 그리고, 지도를 움직이는 것은 `ref` 로 부른다.
+  */
+  const mapRef = useRef<NaverTancheonMapHandle | null>(null);
+  const [zoomState, setZoomState] = useState<MapZoomState | null>(null);
+
+  // 매 렌더마다 새 객체를 넘기면 마커를 다시 만든다. 좌표가 바뀔 때만 새로 만든다.
+  const marker = useMemo(
+    () =>
+      position
+        ? ({
+            lat: position.latitude,
+            lng: position.longitude,
+            kind: "current",
+          } as const)
+        : null,
+    [position],
+  );
 
   return (
     <section className="flex min-h-[400px] flex-1 flex-col overflow-hidden rounded-t-2xl border-[1.5px] border-b-0 border-border bg-surface shadow-card">
@@ -70,7 +86,13 @@ export function RunMapCard({
       {/* 지도와 그 위에 얹히는 것들의 좌표 기준. 공용 지도는 부모가 크기를 정해 줘야 한다. */}
       <div className="relative min-h-[320px] flex-1 overflow-hidden">
         <div className="absolute inset-0">
-          <TancheonMap userPin={MOCK_USER_PIN} viewBox={viewBox} />
+          <NaverTancheonMap
+            ref={mapRef}
+            marker={marker}
+            zone={TANCHEON_ZONE}
+            label="탄천 Ranking Zone 지도"
+            onZoomChange={setZoomState}
+          />
         </div>
 
         {/* 확대 · 축소. 정본은 컨테이너를 overflow:hidden 으로 잘라 모서리를 둥글리지만,
@@ -78,8 +100,8 @@ export function RunMapCard({
         <div className="absolute top-3 right-3 flex flex-col rounded-lg shadow-raised">
           <button
             type="button"
-            onClick={onZoomIn}
-            disabled={!canZoomIn}
+            onClick={() => mapRef.current?.zoomIn()}
+            disabled={zoomState !== null && !zoomState.canZoomIn}
             aria-label="지도 확대"
             className={`${MAP_BUTTON} relative rounded-t-lg border-b border-border text-[19px] font-extrabold text-foreground`}
           >
@@ -87,8 +109,8 @@ export function RunMapCard({
           </button>
           <button
             type="button"
-            onClick={onZoomOut}
-            disabled={!canZoomOut}
+            onClick={() => mapRef.current?.zoomOut()}
+            disabled={zoomState !== null && !zoomState.canZoomOut}
             aria-label="지도 축소"
             className={`${MAP_BUTTON} relative rounded-b-lg text-[19px] font-extrabold text-foreground`}
           >
@@ -98,7 +120,7 @@ export function RunMapCard({
 
         <button
           type="button"
-          onClick={onZoomReset}
+          onClick={() => mapRef.current?.recenter()}
           aria-label="내 위치로 돌아가기"
           className={`${MAP_BUTTON} absolute right-3 bottom-[100px] rounded-lg text-primary shadow-raised`}
         >
