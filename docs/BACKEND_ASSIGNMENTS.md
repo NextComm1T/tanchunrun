@@ -33,26 +33,27 @@ MVP backend 구현 Issue 의 담당·상태 표다. 화면(UI/mock) 구현 이�
 | B4a | #82 | 측정 계산 domain(WGS84 · P2 · P5 · P9 · R11 · 페이스) + 검증 러너 | MERGED | `merge: 없음 · CONFIRMED: D9 · D10 · D12` | — | `feat/82-measure-domain` | #84 · #83 |
 | B4c | #84 | NAVER Maps 공용 지도 컴포넌트 추가 + 홈 지도 전환 (점진적 migration) | MERGED | `merge: #81 B3 · #82 B4a · CONFIRMED: D1 · D3-B` | — | `feat/84-naver-map` | #83 · #85 · #86 |
 | B4b | #83 | 러닝 실측: GPS 수집·업로드·오프라인 버퍼·실시간 표시·running 지도 전환 | MERGED | `merge: #81 B3 · #82 B4a · #84 B4c · CONFIRMED: D1 · D10 · D11 · D14` | — | `feat/83-run-tracking` | #85 · #86 |
-| B5 | #85 | 러닝 종료(F6) 2단계 처리 + 결과 화면 실데이터(F9) + P14 recovery | **READY** | `merge: #83 B4b · #84 B4c · CONFIRMED: D6 · D7 · D13 · D14` | — | `feat/85-run-finish-result` | #86 · #87 · #88 |
-| B6 | #86 | 기록 탭·기록 상세·개인 최고 기록 실데이터 + legacy 지도 삭제 | BLOCKED | `merge: #83 B4b · #84 B4c · #85 B5 · CONFIRMED: D6` | — | `feat/86-records-data` | #89 |
-| B7 | #87 | 누적 랭킹·홈 요약 실데이터 | BLOCKED | `merge: #85 B5 · CONFIRMED: D6 · D7` | — | `feat/87-ranking-home-data` | #89 |
+| B5 | #85 | 러닝 종료(F6) 2단계 처리 + 결과 화면 실데이터(F9) + P14 recovery | MERGED | `merge: #83 B4b · #84 B4c · CONFIRMED: D6 · D7 · D13 · D14` | — | `feat/85-run-finish-result` | #86 · #87 · #88 |
+| B6 | #86 | 기록 탭·기록 상세·개인 최고 기록 실데이터 + legacy 지도 삭제 | MERGED | `merge: #83 B4b · #84 B4c · #85 B5 · CONFIRMED: D6` | — | `feat/86-records-data` | #89 |
+| B7 | #87 | 누적 랭킹·홈 요약 실데이터 | MERGED | `merge: #85 B5 · CONFIRMED: D6 · D7` | — | `feat/87-ranking-home-data` | #89 |
 | B8 | #88 | 설정 실데이터·회원 탈퇴 transaction·로그아웃 통합 | MERGED | `merge: #81 B3 · #85 B5 · CONFIRMED: D11` | — | `feat/88-settings-withdraw` | #89 |
-| B9 | #89 | MVP 전체 통합·실패·E2E 안정화 + MVP Backend Completion Gate 판정 | BLOCKED | `merge: #86 B6 · #87 B7 · #88 B8 · CONFIRMED: D3-A · D3-B` | — | `chore/89-mvp-backend-gate` | Gate 판정(통과 시 담당자가 승격·Phase 1 판단) |
+| B9 | #89 | MVP 전체 통합·실패·E2E 안정화 + MVP Backend Completion Gate 판정 | **READY** | `merge: #86 B6 · #87 B7 · #88 B8 · CONFIRMED: D3-A · D3-B` | — | `chore/89-mvp-backend-gate` | Gate 판정(통과 시 담당자가 승격·Phase 1 판단) |
 
 **담당 칸은 비어 있다. READY 가 된 Issue 부터 담당자가 배정한다.**
 
-## 지금 상태 (2026-09-16 snapshot · `origin/develop` = `175dca4`)
+## 지금 상태 (2026-09-16 snapshot · `origin/develop` = `626bf87`)
 
 - **결정(D)으로 막힌 Issue 는 하나도 없다.** #78 ledger 는 `CONFIRMED 16 · OPEN 0 · SUPERSEDED 1`(D12 1차)이다. 남은 것은 전부 **merge 선행**이다.
-- develop 에 들어간 구현: **#79 · #80 · #81 · #82 · #84 · #83**(순서대로 squash `e80fd7e` · `e1395e3` · `401478a` · `9798339` · `e0f1ef4` · `175dca4`). 승격 PR 전까지 Issue 는 open 으로 남는다.
-- **지금 착수 가능한 것은 #85 하나다.** 나머지 넷은 #85 를 기다린다.
+- develop 에 들어간 구현: **#79 · #80 · #81 · #82 · #84 · #83 · #85 · #86 · #88 · #87**(순서대로 squash `e80fd7e` · `e1395e3` · `401478a` · `9798339` · `e0f1ef4` · `175dca4` · `d9a2f78` · `d59870d` · `49277d6` · `626bf87`). 승격 PR 전까지 Issue 는 open 으로 남는다.
+- **B1~B8 이 전부 develop 에 들어갔다. 남은 것은 #89 하나이고, 지금 착수 가능하다.**
 
 ```
 #85  →  { #86 · #87 · #88 }  →  #89
 ```
 
-- **#85 가 merge 되면 #86 · #87 · #88 셋이 한꺼번에 열린다** — 세 명이 동시에 붙을 수 있는 지점이라, 그 전까지는 #85 가 전체 일정의 병목이다.
-- 아직 브랜치가 없는 Issue: #85 · #86 · #87 · #88 · #89.
+- 이 흐름은 전부 지났다 — #85 · #86 · #87 · #88 이 모두 merge 돼 **#89 가 열렸다**.
+- 아직 브랜치가 없는 Issue: #89.
+- **#89 착수 전에 확인할 것 두 가지** — ① **Vercel preview 배포가 현재 실패한다.** 문서 한 줄만 바꾼 PR #106 도 같은 실패라 코드 원인이 아니라 Vercel 프로젝트 쪽 문제이고, integration 검증 전에 해소돼야 한다. ② **D3-A SUPERSEDE 진행 중** — Neon 구성이 바뀔 수 있다(지휘자 Console 작업 대기).
 - B 트랙과 **병렬로 가능한 작업**(merge 선행과 무관):
   - #79 의 DB · OAuth 실검증 — 빈 `postgres:17` 에 migration `0000`~`0003` 순차 적용 + 로그인 1회. #92 merge 시점에 수행하지 못했고 **#89 전에 반드시 필요**하다
   - NAVER Console 의 integration · production Web 서비스 URL 등록과 Vercel env(#78 D3-B · PR #96 본문 상단)
