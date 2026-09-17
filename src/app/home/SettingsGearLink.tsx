@@ -5,21 +5,19 @@ import Link from "next/link";
 import { rememberSettingsReturnTab } from "@/app/settings/returnTab";
 
 /**
- * 설정 진입(디자인 L832). 탭이 아니라 각 탭 상단의 기어로 들어간다(`modify/2026-09-14.md` 1번).
- *
- * 기록 탭 상단에서는 제목 위 오른쪽에 온다(`self-end`).
- *
- * 클릭 시 지금 탭을 기억해 둔다(#127) — 설정의 뒤로가기가 이 값으로 돌아온다.
+ * 설정 진입(디자인 L702). `HomeHeader` 에서 분리한 이유는 클릭 시 지금 탭을 기억해야
+ * 해서(#127) `onClick` 이 필요하고, 그러려면 이 조각만 client 여야 하기 때문이다 —
+ * `HomeHeader` 나머지는 그대로 server 로 남는다.
  */
 export function SettingsGearLink() {
   return (
     <Link
       href="/settings"
-      onClick={() => rememberSettingsReturnTab("records")}
+      onClick={() => rememberSettingsReturnTab("home")}
       aria-label="설정"
-      // 시각 크기는 디자인대로 34×34 를 유지하고 ::after 로 터치 영역만
-      // 48×48 로 넓힌다 — `BackButton.tsx` 와 같은 방식(07-screens.md:15).
-      className="relative flex size-[34px] shrink-0 items-center justify-center self-end rounded-xs bg-surface-muted text-subtle after:absolute after:-inset-[7px] after:content-['']"
+      // 시각 크기는 디자인대로 32×32 를 두고, ::after 로 터치 영역만 48×48 로 넓힌다
+      // (`docs/07-screens.md:15`). BackButton 과 같은 방식이다.
+      className="relative flex size-8 shrink-0 items-center justify-center rounded-[11px] bg-surface-muted text-subtle after:absolute after:-inset-2 after:content-['']"
     >
       <svg
         width="18"
