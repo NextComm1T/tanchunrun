@@ -102,24 +102,31 @@ npm run db:migrate
 끝이라 이 절이 필요 없다.
 
 **`forward-only` 라서 되돌리는 수단이 migration 에는 없다.** 위 정책대로 이미 적용된 migration 을
-되돌려 쓰지 않으므로, 잘못 적용했을 때 기댈 곳은 **Neon 의 시점 복구**뿐이다. 그래서 적용 전에
+되돌려 쓰지 않으므로, 잘못 적용했을 때 기댈 곳은 **Neon 의 복구**뿐이다. 그래서 적용 전에
 「어디로 되돌릴지」를 먼저 정해 둔다.
+
+**그런데 자동 history window 가 6시간뿐이다**(production `little-morning-18741941` · Free plan ·
+2026-09-17 확인). migration 을 적용하고 promote 한 뒤 문제를 발견하기까지 6시간을 넘기는 것은
+드물지 않다. **자동 window 에 기대면 안 된다 — 적용 직전에 snapshot 을 직접 만든다.**
 
 #### 적용 전 (promote 전 · 1회)
 
 1. **어느 프로젝트인지 확인한다.** production 은 Neon `little-morning-18741941`,
    integration 은 `summer-bonus-83521166` 이다(#112). 둘을 헷갈리면 이 절차 전체가 무의미하다.
-2. **적용 직전 상태를 적어 둔다** — 지금 시각(타임존 포함)과 아래 두 값.
+2. **적용 직전 상태를 적어 둔다** — 지금 시각(**타임존 포함**. Neon 콘솔은 `Asia/Seoul, GMT+09:00`
+   으로 보여 준다)과 아래 값.
 
    ```sql
-   -- 적용 전에 세어 둔다. 복구 지점을 정하는 기준이고, 적용 후 값과 비교해 몇 개가 들어갔는지 본다.
+   -- 적용 전에 세어 둔다. 복구가 제 시점으로 됐는지 나중에 이 값으로 판정한다.
    SELECT count(*) FROM drizzle.__drizzle_migrations;
-   SELECT max(created_at) FROM drizzle.__drizzle_migrations;
    ```
 
-   **적용 전 시각이 곧 복구 지점이다.** Neon 은 이 시점으로 되돌릴 수 있다.
-3. **Neon 의 history retention(복구 가능 기간)이 며칠인지 콘솔에서 확인한다.** 이 기간을 벗어난
-   시점으로는 되돌릴 수 없다. 플랜에 따라 다르고 **현재 값은 미확인이다** — 확인한 값을 #112 에 적는다.
+   2026-09-17 기준 production · integration 모두 **4**(`0000`~`0003`)다.
+3. **snapshot 을 만든다. 이것이 실질적인 backup 이다.**
+   Neon 콘솔 → 해당 프로젝트 → `Backup & Restore` → `Or restore from a snapshot` → **`Create`**.
+   - 자동 `Restore from history` 는 **6시간**만 거슬러 갈 수 있다. 그 안에 알아채지 못하면 끝이다.
+   - snapshot 스케줄(자동 생성)은 유료다(`Upgrade for schedules`). **지금은 사람이 직접 만든다.**
+   - **snapshot 을 만들지 않았으면 migration 을 적용하지 않는다.**
 4. `npm run db:migrate` 를 **direct(unpooled) URL 로 1회** 실행한다(위 「스키마 적용」).
    **실패하면 promote 하지 않는다**(#78 D3-A).
 
@@ -131,7 +138,7 @@ npm run db:migrate
 | 무엇이 잘못됐나 | 무엇을 되돌리나 | 데이터 손실 |
 | --- | --- | --- |
 | 배포한 앱이 잘못 동작한다. **스키마는 멀쩡하다** | **Vercel 만** 이전 배포로 되돌린다. DB 는 건드리지 않는다 | 없음 |
-| migration 이 반쯤 적용돼 스키마가 어중간하다 | Neon 을 **적용 직전 시각**으로 복구한다 | 그 시점 이후 쓰기 전부 |
+| migration 이 반쯤 적용돼 스키마가 어중간하다 | **적용 전에 만든 snapshot** 으로 복구한다 | snapshot 이후 쓰기 전부 |
 | 스키마는 맞는데 새 코드가 **데이터를 잘못 썼다** | 먼저 Vercel 을 되돌려 출혈을 멈추고, 그다음 판단한다 | 복구하면 그 시점 이후 전부 |
 
 **대부분은 첫 줄이다.** 앱 문제를 DB 복구로 풀지 않는다.
@@ -140,7 +147,10 @@ npm run db:migrate
 
 1. **먼저 Vercel 을 이전 배포로 되돌려 쓰기를 멈춘다.** 복구하는 동안에도 새 요청이 계속
    들어오면 복구 시점이 의미를 잃는다.
-2. Neon 콘솔에서 해당 프로젝트의 branch 를 **적용 직전 시각**으로 복구한다.
+2. Neon 콘솔 → 해당 프로젝트 → `Backup & Restore` 에서 복구한다.
+   - **적용 전에 만든 snapshot 이 우선**이다(`Or restore from a snapshot`). 6시간이 지났어도 쓸 수 있다.
+   - snapshot 이 없고 **6시간 안**이라면 `Restore from history` 로 적용 직전 시각을 고른다.
+   - **둘 다 없으면 되돌릴 수 없다.** 그래서 적용 전 snapshot 이 선택이 아니라 전제다.
 3. 복구 후 `SELECT count(*) FROM drizzle.__drizzle_migrations;` 가 **적용 전에 적어 둔 값과 같은지**
    확인한다. 다르면 복구 시점이 틀린 것이다.
 4. 저장소의 `drizzle/` 은 그대로 둔다. **되돌린 migration 파일을 지우지 않는다** — 원인을 고친
