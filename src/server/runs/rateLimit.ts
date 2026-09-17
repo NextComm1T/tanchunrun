@@ -45,10 +45,11 @@ type ConsumeInput = RateLimitSubject & {
  * 마지막 갱신 이후 흐른 시간만큼 충전하고 용량에서 자른다. `now()` 는 **DB 시각**이라
  * 인스턴스마다 다른 기기 시계를 타지 않는다.
  *
- * `db` 를 받는 이유(#85) — `finish` bucket 의 소비는 **`finishRun` 의 tx1 과 같은
- * transaction** 에서 일어나야 한다(D11). 인자로 주지 않으면 `getDb()` 가 만드는 새
- * connection 을 써서 별도 transaction이 되어 버린다. 생략하면 `points` bucket 처럼 독립
- * 호출로 쓴다.
+ * `db` 를 받는 이유(#85 · #114) — 소비는 **그 요청의 business transaction 과 같은
+ * transaction** 에서 일어나야 한다(D11). `finish` 는 `finishRun` 의 tx1, `points` 는
+ * `appendPoints` 의 transaction 을 넘긴다. 인자로 주지 않으면 `getDb()` 가 만드는 새
+ * connection 을 써서 별도 transaction 이 되어 버린다 — 그러면 저장이 rollback 돼도 소비는
+ * 남는다. 지금은 생략하는 호출부가 없다.
  */
 export async function consumeTokens(
   { kind, cost, capacity, refillPerSecond, ...subject }: ConsumeInput,
