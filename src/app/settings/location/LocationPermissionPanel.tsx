@@ -39,9 +39,27 @@ export function LocationPermissionPanel({ children }: { children: ReactNode }) {
       {/*
         디자인은 미허용일 때만 버튼을 그린다(L470). 조회 중이거나 실패했을 때는 허용 여부를
         확신할 수 없어 띄우지 않는다 — 그때의 다음 행동은 "다시 시도"다.
+
+        `denied` 는 버튼이 있어도 브라우저가 다시 묻지 않는다(#124) — 눌러도 아무 일도
+        일어나지 않는 고장 난 버튼처럼 보인다. 그래서 `denied` 에서는 버튼을 아예 빼고,
+        브라우저 설정 안내를 그 자리의 주 동선으로 올린다. `prompt` · `unknown` 은 버튼이
+        실제로 프롬프트를 띄울 수 있어 그대로 둔다.
       */}
       {state === "ready" && needsPermissionAction(permission) ? (
-        <>
+        needsBrowserSettings(permission) ? (
+          /*
+            오류가 아니라 사용자가 고를 수 있는 상태다 — `ARCHITECTURE.md` 토큰 표의
+            「GPS 약함 · 경고」(warning)를 쓰고 error 계열은 쓰지 않는다. 렌더와 함께
+            나타나는 안내라 assertive 로 끼어들 이유도 없어 `role="status"` 다.
+          */
+          <p
+            role="status"
+            className="mt-1.5 rounded-2xl border-[1.5px] border-warning-border bg-warning-soft px-5 py-[18px] text-center text-note leading-[1.6] font-bold text-warning"
+          >
+            이미 거부한 상태라 브라우저가 다시 묻지 않습니다. 브라우저 설정의
+            사이트 권한에서 위치를 허용해 주세요.
+          </p>
+        ) : (
           <button
             type="button"
             onClick={request}
@@ -50,18 +68,7 @@ export function LocationPermissionPanel({ children }: { children: ReactNode }) {
           >
             위치 권한 허용하기
           </button>
-
-          {/*
-            한 번 거부하면 브라우저가 다시 묻지 않는다. 버튼을 눌러도 아무 일이 없는 것처럼
-            보이므로 어디서 풀어야 하는지 알려 준다.
-          */}
-          {needsBrowserSettings(permission) ? (
-            <p className="text-center text-note leading-[1.6] font-medium text-muted">
-              이미 거부한 상태라 브라우저가 다시 묻지 않습니다. 브라우저 설정의
-              사이트 권한에서 위치를 허용해 주세요.
-            </p>
-          ) : null}
-        </>
+        )
       ) : null}
     </>
   );
