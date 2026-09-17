@@ -20,6 +20,38 @@ export const MIN_SAMPLE_INTERVAL_MS = 1000;
 export const GPS_WARNING_AFTER_MS = 2000;
 
 /**
+ * 러닝 시작 시각보다 이른 fix 를 어디까지 받아 줄지(#145).
+ *
+ * **기기가 시작 직전의 fix 를 그대로 주는 일이 흔하다** — Core Location 은 캐시된 표본을 먼저
+ * 주고, Android 의 마지막 위치도 예전 timestamp 를 달고 온다. 그래서 「시작 이전은 전부 버린다」
+ * 로 잘라 버리면 기기 시계가 서버보다 조금 늦기만 해도 측정이 통째로 비어 버린다.
+ *
+ * 이 값은 **client 의 accept 판정과 server 의 수용 범위가 함께 본다**(`src/server/runs/policy.ts`).
+ * 서버가 더 좁으면 client 가 번호를 부여한 점이 영영 거절되고, 그 점 때문에 업로드 · 종료가
+ * 막힌다(#145 의 원인). 두 곳이 갈리지 않도록 정본을 여기 하나만 둔다.
+ *
+ * 미래 쪽(`FUTURE_CLOCK_TOLERANCE_MS`)과 같은 크기다 — 기기 시계가 어느 쪽으로 어긋나든 대칭이다.
+ */
+export const RUN_START_CLOCK_TOLERANCE_MS = 60_000;
+
+/**
+ * 이 fix 가 **이 러닝의 것으로 볼 수 있는 시각**인가(#145).
+ *
+ * 시작보다 이르더라도 위 허용치 안이면 쓴다. 넘으면 `unusable` 과 같이 다뤄 **번호를 부여하지
+ * 않는다** — 번호를 준 뒤 서버가 거절하면 그 자리가 빈 채로 남아 종료가 막히기 때문이다.
+ */
+export function isWithinRunStart(
+  recordedAt: number,
+  runStartedAtMs: number,
+): boolean {
+  if (!Number.isFinite(recordedAt) || !Number.isFinite(runStartedAtMs)) {
+    return false;
+  }
+
+  return recordedAt >= runStartedAtMs - RUN_START_CLOCK_TOLERANCE_MS;
+}
+
+/**
  * fix 판정 결과.
  *
  * - `accept` — 쓴다. rawSeq 부여 · 버퍼 · 업로드 · 수치 · 경로에 들어간다

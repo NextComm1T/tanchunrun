@@ -4,7 +4,9 @@ import {
   GPS_GAP_MS,
   MAX_ACCURACY_M,
   MIN_SAMPLE_INTERVAL_MS,
+  RUN_START_CLOCK_TOLERANCE_MS,
   classifyFix,
+  isWithinRunStart,
   resolveSegment,
   type Fix,
   type LastAccepted,
@@ -103,5 +105,35 @@ describe("resolveSegment", () => {
     expect(
       resolveSegment(LAST, { recordedAt: LAST.recordedAt + GPS_GAP_MS }, false),
     ).toBe(LAST.segment);
+  });
+});
+
+describe("isWithinRunStart — #145", () => {
+  const STARTED_AT = 1_700_000_000_000;
+
+  it("시작 이후의 fix 는 쓴다", () => {
+    expect(isWithinRunStart(STARTED_AT, STARTED_AT)).toBe(true);
+    expect(isWithinRunStart(STARTED_AT + 1, STARTED_AT)).toBe(true);
+  });
+
+  it("시작 직전이라도 허용치 안이면 쓴다 — 기기가 준 시작 직전 fix", () => {
+    expect(
+      isWithinRunStart(STARTED_AT - RUN_START_CLOCK_TOLERANCE_MS, STARTED_AT),
+    ).toBe(true);
+    expect(isWithinRunStart(STARTED_AT - 1000, STARTED_AT)).toBe(true);
+  });
+
+  it("허용치를 넘게 이르면 쓰지 않는다 — 번호를 주면 서버가 영영 거절한다", () => {
+    expect(
+      isWithinRunStart(
+        STARTED_AT - RUN_START_CLOCK_TOLERANCE_MS - 1,
+        STARTED_AT,
+      ),
+    ).toBe(false);
+  });
+
+  it("유한하지 않은 값은 쓰지 않는다", () => {
+    expect(isWithinRunStart(Number.NaN, STARTED_AT)).toBe(false);
+    expect(isWithinRunStart(STARTED_AT, Number.NaN)).toBe(false);
   });
 });

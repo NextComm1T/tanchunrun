@@ -20,6 +20,17 @@ import "server-only";
  */
 export const FUTURE_CLOCK_TOLERANCE_MS = 60_000;
 
+/**
+ * 반대쪽 한계 — `started_at` 보다 이른 `recordedAt` 을 어디까지 받아 주는가(#145).
+ *
+ * **여기서 새로 정하지 않고 domain 의 값을 그대로 쓴다.** client 가 accept 판정에 같은 값을
+ * 쓰기 때문이다(`src/domain/measure/fix.ts`). 서버가 더 좁으면 client 가 이미 번호를 부여한
+ * 점이 영영 거절되고, 그 번호가 빈 자리로 남아 업로드 · 종료가 통째로 막힌다(#145).
+ *
+ * 값을 고치지 않는 원칙은 그대로다 — 허용 범위만 미래 쪽과 대칭으로 두고, 벗어나면 거절한다.
+ */
+export { RUN_START_CLOCK_TOLERANCE_MS as PAST_CLOCK_TOLERANCE_MS } from "@/domain/measure";
+
 /** 한 요청에 담을 수 있는 점 개수. 넘으면 거절하고, client 는 나눠 다시 보낸다. */
 export const POINTS_MAX_PER_REQUEST = 500;
 

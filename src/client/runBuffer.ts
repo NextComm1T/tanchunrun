@@ -57,9 +57,36 @@ export type FinishIntent = {
   trackerGeneration: number;
   /** 사용자가 종료를 누른 기기 시각(epoch ms). 서버가 이 값을 검증한다. */
   clientFinishedAt: number;
-  /** 이 generation 에서 마지막으로 부여한 rawSeq. 점이 없으면 0 이다(D11). */
+  /**
+   * 이 generation 에서 **빠짐없이 올린 마지막 rawSeq**. 점이 없으면 0 이다(D11).
+   *
+   * 서버가 끝내 받지 않은 점이 있으면 마지막으로 부여한 번호가 아니라 **그 빈 자리 앞까지**다
+   * (#145 · `finishLastRawSeq`).
+   */
   lastRawSeq: number;
 };
+
+/**
+ * 종료 요청에 넣을 `lastRawSeq`(#145).
+ *
+ * 서버는 `1..lastRawSeq` 가 **빠짐없이** 저장돼 있어야 종료를 받는다. 그런데 서버가 끝내 받지
+ * 않는 점(범위 밖 `recordedAt` 등)이 하나 생기면 그 번호는 영영 빈 자리로 남는다. 그때
+ * 「마지막으로 부여한 번호」를 그대로 보내면 종료가 영영 `points_missing` 이 된다.
+ *
+ * 그래서 **빈 자리 바로 앞까지**를 보낸다. 그 뒤의 점들은 이미 서버에 저장돼 있고 결과 확정은
+ * 저장된 점을 전부 쓰므로 버려지지 않는다 — 종료 판정만 연속 구간까지로 끊는 것이다.
+ */
+export function finishLastRawSeq(
+  nextRawSeq: number,
+  droppedRawSeqs: readonly number[],
+): number {
+  const assigned = Math.max(0, Math.floor(nextRawSeq) - 1);
+  const firstDropped = droppedRawSeqs
+    .filter((rawSeq) => rawSeq >= 1 && rawSeq <= assigned)
+    .sort((a, b) => a - b)[0];
+
+  return firstDropped === undefined ? assigned : firstDropped - 1;
+}
 
 type PointKeyRange = { sessionId: string; trackerGeneration: number };
 
