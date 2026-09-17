@@ -17,6 +17,13 @@ const MEDALS = [medalGold, medalSilver, medalBronze];
 /** 목록이 비었을 때(디자인에 없는 상태 — `modify/2026-09-15-ranking.md` 1번). */
 const EMPTY_RANKING_NOTICE = "아직 랭킹 데이터가 없습니다";
 
+/** 본인이 목록에 없을 때(누적 인정 거리 0)의 안내(#121 · 디자인에 없는 상태). */
+const NOT_RANKED_NOTICE = "아직 탄천 Ranking Zone 인정 거리가 없어요";
+
+/** 참여 조건 설명(F5 · P5 — 인정 거리가 0보다 커야 랭킹에 오른다). #121 이 추가한 문구다. */
+const PARTICIPATION_HINT =
+  "탄천 Ranking Zone 안에서 달리면 인정 거리가 쌓여 랭킹에 올라요";
+
 /** 거리는 m 로 저장하고 km 소수 한 자리로 보여 준다(디자인 L969-983). */
 function toKilometres(distanceM: number): string {
   return (distanceM / 1000).toFixed(1);
@@ -131,6 +138,28 @@ function RankingRow({ entry }: { entry: RankingEntry }) {
 }
 
 /**
+ * 참여 조건 설명 + `/home` CTA(#121). 빈 랭킹 · 본인 미등재 두 상태가 함께 쓴다 —
+ * 둘 다 "왜 안 보이는지" 다음에 "그럼 어떻게 해야 하는지"를 같은 모양으로 답한다.
+ *
+ * 디자인(`탄천런.dc.html` L772-828)에 없는 상태라 새 컴포넌트를 만들지 않고 기존 카드 ·
+ * 버튼 토큰(`InfoCard`·`RunMapCard.tsx` 의 위치정보 설정 링크와 같은 방식)을 그대로 쓴다.
+ */
+function RankingParticipationNotice({ heading }: { heading: string }) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-2xl border-[1.5px] border-border bg-surface px-5 py-8 text-center shadow-card">
+      <p className="text-content font-bold text-foreground">{heading}</p>
+      <p className="text-sm font-medium text-muted">{PARTICIPATION_HINT}</p>
+      <Link
+        href="/home"
+        className="mt-1 inline-flex h-11 items-center justify-center rounded-xl bg-primary px-6 text-base font-extrabold text-on-primary"
+      >
+        달리러 가기
+      </Link>
+    </div>
+  );
+}
+
+/**
  * 홈 — 랭킹 탭(#43 · #87 · F5 · P5 · P8).
  *
  * 목록 · 본인 줄 · 인원수가 모두 실제 누적(`save_state = 'saved'` 파생 · D6)에서 나온다.
@@ -163,7 +192,13 @@ export default async function RankingPage() {
         <SettingsGearLink />
       </div>
 
-      {myEntry ? <MyRankCard entry={myEntry} /> : null}
+      {myEntry ? (
+        <MyRankCard entry={myEntry} />
+      ) : entries.length > 0 ? (
+        <div className="mb-3.5">
+          <RankingParticipationNotice heading={NOT_RANKED_NOTICE} />
+        </div>
+      ) : null}
 
       {entries.length > 0 ? (
         <ul className="flex flex-col gap-[9px] pb-4">
@@ -172,9 +207,9 @@ export default async function RankingPage() {
           ))}
         </ul>
       ) : (
-        <p className="py-16 text-center text-content text-muted">
-          {EMPTY_RANKING_NOTICE}
-        </p>
+        <div className="py-10">
+          <RankingParticipationNotice heading={EMPTY_RANKING_NOTICE} />
+        </div>
       )}
     </AppShell>
   );
