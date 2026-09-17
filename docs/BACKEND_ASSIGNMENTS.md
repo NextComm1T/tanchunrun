@@ -53,7 +53,7 @@ MVP backend 구현 Issue 의 담당·상태 표다. 화면(UI/mock) 구현 이�
 
 - 이 흐름은 전부 지났다 — #85 · #86 · #87 · #88 이 모두 merge 돼 **#89 가 열렸다**.
 - 아직 브랜치가 없는 Issue: #89.
-- **#89 착수 전에 확인할 것 두 가지** — ① **Vercel preview 배포가 현재 실패한다.** 문서 한 줄만 바꾼 PR #106 도 같은 실패라 코드 원인이 아니라 Vercel 프로젝트 쪽 문제이고, integration 검증 전에 해소돼야 한다. ② **D3-A SUPERSEDE 진행 중** — Neon 구성이 바뀔 수 있다(지휘자 Console 작업 대기).
+- **#89 착수 전에 확인할 것 두 가지** — ① **Vercel preview 배포가 현재 실패한다.** 문서 한 줄만 바꾼 PR #106 도 같은 실패라 코드 원인이 아니라 Vercel 프로젝트 쪽 문제이고, integration 검증 전에 해소돼야 한다. ② **D3-A 가 2차 CONFIRMED(2026-09-17)로 갱신됐다** — Google 이 Cloud 프로젝트 2개 분리에서 **프로젝트 1개 + OAuth Web client 2개**(Nonprod = local + develop · Production = production)로 바뀌었다. Vercel Preview(branch=`develop`)는 Nonprod client, Production 은 Production client 를 쓴다. **Kakao · Neon · Vercel · migration · local DB 정책은 1차 그대로 유지**다. 값 정본은 #78 ledger.
 - B 트랙과 **병렬로 가능한 작업**(merge 선행과 무관):
   - #79 의 DB · OAuth 실검증 — 빈 `postgres:17` 에 migration `0000`~`0003` 순차 적용 + 로그인 1회. #92 merge 시점에 수행하지 못했고 **#89 전에 반드시 필요**하다
   - NAVER Console 의 integration · production Web 서비스 URL 등록과 Vercel env(#78 D3-B · PR #96 본문 상단)
