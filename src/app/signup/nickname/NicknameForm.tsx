@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 import {
   checkNickname,
@@ -57,6 +57,16 @@ const SAVE_ERROR_MESSAGES = {
   failed: "저장에 실패했습니다. 다시 시도해주세요.",
 } as const;
 
+/**
+ * 제출 버튼이 입력과 **다른 블록**(화면 바닥)에 있어 `form` 속성으로 묶는다(#123).
+ *
+ * 전체를 `<form>` 으로 감싸지 않는 이유 — 이 화면은 이미지 블록과 버튼 블록의 `mt-auto`
+ * 둘이 남는 여백을 나눠 갖는 구조다(`page.tsx:24`). 가운데를 `<form>` 하나로 묶으면 그
+ * 배분이 깨진다. 버튼은 `form` 속성으로 소유자를 가리키므로 폼의 **기본 제출 버튼**이 되고,
+ * 입력에서 Enter · Done 을 눌렀을 때의 암묵적 제출도 이 버튼을 거친다.
+ */
+const FORM_ID = "signup-nickname-form";
+
 export function NicknameForm() {
   const router = useRouter();
 
@@ -64,6 +74,8 @@ export function NicknameForm() {
   const [value, setValue] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // 한글 IME 가 글자를 조합하는 중인지. Enter 가 "조합 확정"인지 "제출"인지를 가른다.
+  const composing = useRef(false);
 
   const nickname = value ?? "";
 
@@ -74,7 +86,16 @@ export function NicknameForm() {
    * 저장에 성공했을 때만 러닝 시작 화면으로 간다. 실패하면 이 화면에 머무른다 —
    * 가입이 끝나지 않았는데 끝난 것처럼 보이면 안 된다.
    */
-  function handleSubmit() {
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    // 버튼 클릭 · Enter · 모바일 키보드 Done 이 전부 여기로 모인다. 기본 제출은 막는다.
+    event.preventDefault();
+
+    /*
+      버튼이 disabled 라 브라우저의 암묵적 제출도 여기까지 오지 않지만, 판정을 제출 경로
+      한쪽에만 두지 않는다 — pending 중 Enter 연타로 두 번 저장되면 안 된다.
+    */
+    if (!isValid || pending || composing.current) return;
+
     setSaveError(null);
 
     startTransition(async () => {
@@ -90,6 +111,19 @@ export function NicknameForm() {
     });
   }
 
+  /*
+    조합을 끝내는 Enter 는 **확정 키**다. 그대로 두면 "탄천"을 만들려던 Enter 가 "탄ㅊ" 을
+    저장해 버린다. 확정만 시키고 제출은 다음 Enter 로 넘긴다.
+  */
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (
+      event.key === "Enter" &&
+      (event.nativeEvent.isComposing || composing.current)
+    ) {
+      event.preventDefault();
+    }
+  }
+
   // 서버가 거절한 이유가 있으면 그것을 보여 준다 — 입력이 바뀌면 다시 즉시 안내로 돌아간다.
   const shown: Feedback | null = saveError
     ? { text: saveError, tone: "error" }
@@ -98,7 +132,11 @@ export function NicknameForm() {
   return (
     <>
       {/* 그림자는 디자인이 alpha 0.05, 토큰(shadow-card)은 0.06 이다. */}
-      <div className="rounded-xl border-[1.5px] border-info-border bg-surface px-5 py-[18px] shadow-card">
+      <form
+        id={FORM_ID}
+        onSubmit={handleSubmit}
+        className="rounded-xl border-[1.5px] border-info-border bg-surface px-5 py-[18px] shadow-card"
+      >
         <input
           type="text"
           value={nickname}
@@ -106,15 +144,24 @@ export function NicknameForm() {
             setValue(event.target.value);
             setSaveError(null);
           }}
+          onKeyDown={handleKeyDown}
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={() => {
+            composing.current = false;
+          }}
           placeholder="닉네임 입력"
           maxLength={NICKNAME_MAX_LENGTH}
           autoFocus
+          // 이 화면의 마지막 입력이고 확정하면 가입이 끝난다 — 키보드 확정 키를 "완료"로.
+          enterKeyHint="done"
           aria-label="닉네임"
           aria-describedby="nickname-rule nickname-feedback"
           aria-invalid={shown?.tone === "error"}
           className="w-full bg-transparent text-[21px] font-bold text-foreground outline-none placeholder:text-disabled"
         />
-      </div>
+      </form>
 
       <div className="mt-2.5 flex items-center justify-between px-1">
         <span id="nickname-rule" className="text-note font-medium text-muted">
@@ -137,9 +184,9 @@ export function NicknameForm() {
 
       <div className="mt-auto shrink-0 pt-5 pb-[34px]">
         <button
-          type="button"
+          type="submit"
+          form={FORM_ID}
           disabled={!isValid || pending}
-          onClick={handleSubmit}
           className={`h-[60px] w-full rounded-xl text-[19px] font-extrabold ${
             isValid
               ? "bg-primary text-on-primary disabled:opacity-60"
