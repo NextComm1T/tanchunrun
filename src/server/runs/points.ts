@@ -8,6 +8,7 @@ import { routePoints, runSessions } from "@/server/db/schema";
 import { ackAfterWrite, planAppend } from "./ack";
 import {
   FUTURE_CLOCK_TOLERANCE_MS,
+  PAST_CLOCK_TOLERANCE_MS,
   POINTS_BUCKET_CAPACITY,
   POINTS_BUCKET_REFILL_PER_SECOND,
   pointsBucketCost,
@@ -93,15 +94,19 @@ export type AppendPointsOutcome =
 /**
  * `recordedAt` 이 받아들일 범위 안인가.
  *
- * 시작 전 시각과 서버보다 지나치게 앞선 시각을 거른다. **clamp 하지 않는다** — 값을 고쳐
- * 받으면 구간 시간이 달라져 끊김 판정(D10)과 속도 제외(P9)가 조용히 틀어진다.
+ * 양쪽 다 **대칭으로 60초**를 준다(#145). 기기 시계가 서버보다 늦거나, OS 가 시작 직전에 잡은
+ * fix 를 그대로 주는 일이 흔해서 「시작 이전은 전부 거절」이면 정상 러닝이 통째로 막혔다 —
+ * client 도 같은 허용치로 accept 를 판정하므로(`isWithinRunStart`) 여기서 더 좁히면 안 된다.
+ *
+ * 범위를 벗어나면 **clamp 하지 않고 거절한다** — 값을 고쳐 받으면 구간 시간이 달라져 끊김
+ * 판정(D10)과 속도 제외(P9)가 조용히 틀어진다.
  */
 function outOfRangePoint(
   points: readonly IncomingPoint[],
   startedAt: Date,
   now: Date,
 ): IncomingPoint | null {
-  const earliest = startedAt.getTime();
+  const earliest = startedAt.getTime() - PAST_CLOCK_TOLERANCE_MS;
   const latest = now.getTime() + FUTURE_CLOCK_TOLERANCE_MS;
 
   return (

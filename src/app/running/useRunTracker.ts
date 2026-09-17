@@ -8,6 +8,7 @@ import {
   deleteBufferedPoint,
   maxBufferedRawSeq,
   readBufferedPoints,
+  finishLastRawSeq,
   readFinishIntent,
   writeFinishIntent,
   type BufferedPoint,
@@ -17,6 +18,7 @@ import {
   GPS_WARNING_AFTER_MS,
   classifyFix,
   currentPace,
+  isWithinRunStart,
   measure,
   resolveSegment,
   type LastAccepted,
@@ -165,6 +167,9 @@ export function useRunTracker({
   const [points, setPoints] = useState<RawPoint[]>([]);
   const [paceTick, setPaceTick] = useState(() => Date.now());
 
+  /** 서버가 정한 시작 시각(epoch ms). fix 판정(#145)과 페이스가 같은 값을 본다. */
+  const startedAtMs = useMemo(() => new Date(startedAt).getTime(), [startedAt]);
+
   /*
     측정 중에 바뀌지만 렌더를 일으키면 안 되는 값들. state 로 두면 fix 하나마다 렌더가
     여러 번 돌고, watch callback 이 낡은 값을 보게 된다.
@@ -179,6 +184,11 @@ export function useRunTracker({
   const flushingRef = useRef(false);
   const batchSizeRef = useRef(INITIAL_BATCH);
   const attemptRef = useRef(0);
+  /**
+   * 서버가 끝내 받지 않아 버린 번호(#145). 종료 때 어디까지를 「빠짐없이 올렸다」고 말할지
+   * 이 값이 정한다 — 빈 자리를 그대로 두고 종료하면 서버가 영영 `points_missing` 을 돌려준다.
+   */
+  const droppedRawSeqsRef = useRef<number[]>([]);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const stoppedRef = useRef(false);
 
@@ -359,6 +369,31 @@ export function useRunTracker({
         return;
       }
 
+      /*
+        서버가 시각 범위 밖이라고 돌려준 점(#145). 다시 보내도 영영 거절당하므로 **그 점만**
+        빼고 계속 간다 — 같은 배치를 무한히 재시도하면 뒤의 점도 하나도 올라가지 못한다.
+
+        빠진 번호는 기억해 뒀다가 종료 때 `lastRawSeq` 를 그 앞까지로 보낸다. 그러지 않으면
+        서버의 완전성 검사가 영영 `points_missing` 이 된다.
+      */
+      if (
+        body?.error === "invalid_recorded_at" &&
+        typeof body.rawSeq === "number"
+      ) {
+        droppedRawSeqsRef.current = [
+          ...droppedRawSeqsRef.current,
+          body.rawSeq,
+        ];
+        await deleteBufferedPoint({
+          sessionId,
+          trackerGeneration,
+          rawSeq: body.rawSeq,
+        });
+        setUploadStatus("conflict");
+        scheduleFlush(0);
+        return;
+      }
+
       if (body?.error === "point_conflict" && typeof body.rawSeq === "number") {
         /*
           같은 키에 다른 좌표가 이미 서버에 있다. **그 점만** 빼고 계속 간다 — 다시 보내도
@@ -403,6 +438,19 @@ export function useRunTracker({
         recordedAt: position.timestamp,
       };
 
+      /*
+        이 러닝의 것으로 볼 수 없는 시각이면 **번호를 부여하지 않는다**(#145).
+
+        OS 가 시작 직전에 잡아 둔 fix 를 그대로 주는 일이 흔한데(Core Location 의 캐시 ·
+        Android 의 마지막 위치), 그런 점에 번호를 주면 서버가 `invalid_recorded_at` 으로
+        거절하고 그 번호가 빈 자리로 남아 업로드 · 종료가 통째로 막힌다. 허용치는 서버와
+        같은 값을 쓴다 — 여기서 통과한 점은 서버도 받는다.
+      */
+      if (!isWithinRunStart(fix.recordedAt, startedAtMs)) {
+        enterGap("signal");
+        return;
+      }
+
       const verdict = classifyFix(lastAcceptedRef.current, fix);
 
       if (verdict === "unusable") {
@@ -441,7 +489,15 @@ export function useRunTracker({
         .then(() => scheduleFlush(0))
         .catch(() => setUploadStatus("offline"));
     },
-    [enterGap, leaveGap, scheduleFlush, sessionId, trackerGeneration, userId],
+    [
+      enterGap,
+      leaveGap,
+      scheduleFlush,
+      sessionId,
+      startedAtMs,
+      trackerGeneration,
+      userId,
+    ],
   );
 
   const handleError = useCallback(
@@ -647,10 +703,8 @@ export function useRunTracker({
   const result = useMemo(() => measure(points), [points]);
   const pace = useMemo(
     () =>
-      currentPace(points, paceTick, {
-        startedAt: new Date(startedAt).getTime(),
-      }),
-    [points, paceTick, startedAt],
+      currentPace(points, paceTick, { startedAt: startedAtMs }),
+    [points, paceTick, startedAtMs],
   );
 
   const lastMeasured = result.routePoints.findLast(
@@ -684,7 +738,10 @@ export function useRunTracker({
         trackerToken: record.trackerToken,
         trackerGeneration: record.trackerGeneration,
         clientFinishedAt,
-        lastRawSeq: Math.max(0, nextRawSeqRef.current - 1),
+        lastRawSeq: finishLastRawSeq(
+          nextRawSeqRef.current,
+          droppedRawSeqsRef.current,
+        ),
       });
     },
     [clearWarningTimer, sessionId, stopWatch, userId],
