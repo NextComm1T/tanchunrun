@@ -107,13 +107,30 @@ export function RunningScreen({
         </p>
       ) : null}
 
-      {tracker.uploadStatus === "offline" ||
-      tracker.uploadStatus === "rate-limited" ? (
+      {/*
+        offline 과 rate-limited 는 원인이 다르다(#125) — 하나로 뭉치면 사용자가 잘못된
+        행동(자리 이동 · 비행기 모드 토글 등)을 하게 된다. rate-limited 는 서버가 자원
+        보호로 잠시 늦춘 것뿐이라 "곧 자동으로 다시 보낸다"는 것을 알려 준다 — 429 ·
+        토큰버킷 같은 내부 용어는 쓰지 않는다(`useRunTracker.ts` 가 이미 아는 값이고
+        여기서 새로 계산하지 않는다).
+      */}
+      {tracker.uploadStatus === "offline" ? (
         <p
           role="status"
           className="mx-4 mt-3 shrink-0 rounded-md bg-surface-muted px-4 py-2.5 text-note font-bold text-subtle"
         >
-          연결이 불안정해 기록 전송을 미루고 있어요. 측정은 계속됩니다.
+          연결이 원활하지 않아 기록 전송이 미뤄지고 있어요. 측정은 계속되고 기록도 그대로
+          보존됩니다.
+        </p>
+      ) : null}
+
+      {tracker.uploadStatus === "rate-limited" ? (
+        <p
+          role="status"
+          className="mx-4 mt-3 shrink-0 rounded-md bg-surface-muted px-4 py-2.5 text-note font-bold text-subtle"
+        >
+          지금은 전송 속도를 잠시 늦추고 있어요. 측정은 계속되고 기록도 보존되며, 잠시 후
+          자동으로 다시 보냅니다.
         </p>
       ) : null}
 

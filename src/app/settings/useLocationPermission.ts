@@ -124,5 +124,35 @@ export function useLocationPermission(): LocationPermissionQuery {
     setAttempt((n) => n + 1);
   }, []);
 
+  /*
+    브라우저 설정에서 권한을 바꾸고 앱으로 돌아왔을 때(#124), `status.onchange` 구독이
+    있는 브라우저는 이미 갱신된다. 하지만 그 구독이 조용히 안 걸리는 경우(탭이 오래
+    백그라운드에 있었거나 OS 수준 설정을 거친 경우 등)를 대비해, 탭이 다시 보이거나
+    창이 focus 를 되찾을 때 한 번 더 조용히 재조회한다 — `state` 는 건드리지 않아
+    로딩 스켈레톤이 다시 뜨지 않는다. Permissions API 가 없는 브라우저(`unknown`)는
+    `status` 가 없어 그대로 넘어가므로 회귀가 없다.
+  */
+  useEffect(() => {
+    async function refreshOnReturn() {
+      if (document.visibilityState === "hidden") return;
+
+      try {
+        const status = await navigator.permissions?.query({
+          name: "geolocation",
+        });
+        if (status) setPermission(status.state);
+      } catch {
+        // 조용히 넘어간다 — 이미 보여 준 상태를 그대로 둔다. 오류 표시는 `retry()` 몫이다.
+      }
+    }
+
+    document.addEventListener("visibilitychange", refreshOnReturn);
+    window.addEventListener("focus", refreshOnReturn);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshOnReturn);
+      window.removeEventListener("focus", refreshOnReturn);
+    };
+  }, []);
+
   return { state, permission, request, requesting, retry };
 }

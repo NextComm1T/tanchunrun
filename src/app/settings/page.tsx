@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/shared/AppShell";
-import { Header } from "@/components/shared/Header";
 import { getViewer, type Viewer } from "@/server/auth/session";
 
 import { ErrorCard } from "./ErrorCard";
@@ -12,6 +11,7 @@ import { ACTIVE_SESSION_NOTICE, PROVIDER_LABEL } from "./profile";
 import { ProfileCard } from "./ProfileCard";
 import { SettingsBlockedRow, SettingsLinkRow } from "./SettingsRow";
 import { SettingsCard, SettingsSection } from "./SettingsSection";
+import { SettingsHeader } from "./SettingsHeader";
 
 /**
  * 설정 화면(#46 · #88) — 디자인 L375-437.
@@ -113,13 +113,13 @@ export default async function SettingsPage() {
 /**
  * 정상 · 오류가 같은 틀을 쓴다.
  *
- * 탭바가 없는 서브 화면이다. 홈 헤더의 기어로 들어오고 뒤로 가기로 나간다
- * (디자인 L1171-1172 · `modify/2026-09-14.md` 1번). `backHref` 를 주지 않아
- * `router.back()` 으로 왔던 탭에 그대로 돌아간다.
+ * 탭바가 없는 서브 화면이다. 각 탭 상단 기어로 들어오고 뒤로 가기로 나간다
+ * (디자인 L1171-1172 · `modify/2026-09-14.md` 1번). 뒤로가기는 history 가 아니라
+ * 들어올 때 기억해 둔 source tab 으로 돌아간다(#127 · `SettingsHeader` · `returnTab.ts`).
  */
 function SettingsShell({ children }: { children: ReactNode }) {
   return (
-    <AppShell header={<Header title="설정" showBack />}>
+    <AppShell header={<SettingsHeader />}>
       <div className="py-[22px]">{children}</div>
     </AppShell>
   );

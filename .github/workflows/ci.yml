@@ -1,0 +1,53 @@
+# Pull Request 자동 검증 (#126).
+#
+# docs/PROJECT_COMMANDS.md 의 "PR 전에 반드시" 를 그대로 옮긴 것이다 — lint · test · build.
+# 각 명령을 별도 step 으로 둬서 실패한 단계가 GitHub UI 에서 바로 보이게 한다.
+#
+# **secret · production DB 를 쓰지 않는다.** env 를 하나도 주입하지 않아도 전부 통과한다:
+#   - 서버 전용 env 6개 검사(`assertStartupEnv`)는 `src/instrumentation.ts` 의 `register()` 에서만
+#     돌고, 이건 빌드가 아니라 서버가 실제로 뜰 때만 실행된다.
+#   - `readAuthEnv()` 는 module top-level 이 아니라 첫 요청에서 평가된다(src/server/auth/config.ts).
+#   - `NEXT_PUBLIC_NAVER_MAP_KEY_ID` 는 없으면 지도 자리에 `credential` 안내가 나올 뿐 빌드는 통과한다.
+#   - `npm test` 대상은 화면 · DB · 네트워크 없이 도는 순수 함수뿐이다(#78 D12 2차).
+# 이 전제가 깨지면(빌드가 env 를 요구하기 시작하면) placeholder 를 넣지 말고 팀에 보고한다.
+
+name: CI
+
+on:
+  pull_request:
+
+# 같은 PR 에 연속으로 push 하면 이전 run 을 취소한다 — 마지막 commit 의 결과만 의미가 있다.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# GITHUB_TOKEN 은 checkout 에 필요한 읽기 권한만 갖는다.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: lint · test · build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 import {
   checkNickname,
@@ -71,6 +71,12 @@ const SAVE_ERROR_MESSAGES = {
   failed: "저장에 실패했습니다. 다시 시도해주세요.",
 } as const;
 
+/**
+ * 제출 버튼이 입력과 **다른 블록**(화면 바닥 `mt-auto`)에 있어 `form` 속성으로 묶는다(#123).
+ * 버튼이 폼의 기본 제출 버튼이 되어, 입력에서의 Enter · Done 도 같은 경로로 들어온다.
+ */
+const FORM_ID = "settings-nickname-form";
+
 type NicknameEditFormProps = {
   /**
    * 현재 저장된 닉네임. **읽기 전용이다.**
@@ -87,6 +93,8 @@ export function NicknameEditForm({ currentNickname }: NicknameEditFormProps) {
   const [draft, setDraft] = useState(currentNickname);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // 한글 IME 가 글자를 조합하는 중인지. Enter 가 "조합 확정"인지 "제출"인지를 가른다.
+  const composing = useRef(false);
 
   const { status, message } = resolve(draft, currentNickname);
   const canSave = status === "ready";
@@ -95,7 +103,16 @@ export function NicknameEditForm({ currentNickname }: NicknameEditFormProps) {
   const isError =
     saveError !== null || status === "empty" || status === "invalid";
 
-  function handleSubmit() {
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    // 버튼 클릭 · Enter · 모바일 키보드 Done 이 전부 여기로 모인다. 기본 제출은 막는다.
+    event.preventDefault();
+
+    /*
+      `canSave` 가 false 면 「현재 닉네임과 동일」이거나 형식 위반이다 — 어느 쪽도 저장하지
+      않는다. pending 판정을 함께 두어 Enter 연타로 두 번 저장되는 것도 막는다.
+    */
+    if (!canSave || pending || composing.current) return;
+
     setSaveError(null);
 
     startTransition(async () => {
@@ -112,10 +129,27 @@ export function NicknameEditForm({ currentNickname }: NicknameEditFormProps) {
     });
   }
 
+  /*
+    조합을 끝내는 Enter 는 **확정 키**다. 그대로 두면 "탄천"을 만들려던 Enter 가 "탄ㅊ" 을
+    저장해 버린다. 확정만 시키고 제출은 다음 Enter 로 넘긴다.
+  */
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (
+      event.key === "Enter" &&
+      (event.nativeEvent.isComposing || composing.current)
+    ) {
+      event.preventDefault();
+    }
+  }
+
   return (
     <>
       <div className="py-[22px]">
-        <div className="rounded-xl border-[1.5px] border-info-border bg-surface px-5 py-[18px] shadow-card">
+        <form
+          id={FORM_ID}
+          onSubmit={handleSubmit}
+          className="rounded-xl border-[1.5px] border-info-border bg-surface px-5 py-[18px] shadow-card"
+        >
           <label
             htmlFor="nickname"
             className="mb-2 block text-label font-bold text-muted"
@@ -130,9 +164,18 @@ export function NicknameEditForm({ currentNickname }: NicknameEditFormProps) {
               setDraft(event.target.value);
               setSaveError(null);
             }}
+            onKeyDown={handleKeyDown}
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={() => {
+              composing.current = false;
+            }}
             placeholder="닉네임 입력"
             maxLength={NICKNAME_MAX_LENGTH}
             autoFocus
+            // 이 화면의 유일한 입력이고 확정하면 저장이 끝난다 — 키보드 확정 키를 "완료"로.
+            enterKeyHint="done"
             aria-describedby="nickname-hint nickname-feedback"
             aria-invalid={isError}
             className="w-full bg-transparent text-title font-bold text-foreground outline-none placeholder:text-disabled"
@@ -149,7 +192,7 @@ export function NicknameEditForm({ currentNickname }: NicknameEditFormProps) {
               {draft.length}/{NICKNAME_MAX_LENGTH}
             </span>
           </div>
-        </div>
+        </form>
 
         <p
           id="nickname-feedback"
@@ -164,9 +207,9 @@ export function NicknameEditForm({ currentNickname }: NicknameEditFormProps) {
 
       <div className="mt-auto shrink-0 pb-[34px]">
         <button
-          type="button"
+          type="submit"
+          form={FORM_ID}
           disabled={!canSave || pending}
-          onClick={handleSubmit}
           className={`h-[60px] w-full rounded-xl text-[19px] font-extrabold ${
             canSave
               ? "bg-primary text-on-primary disabled:opacity-60"
