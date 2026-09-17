@@ -5,6 +5,8 @@ import { eq, sql } from "drizzle-orm";
 import { getDb, type Db } from "@/server/db/client";
 import { runSessions } from "@/server/db/schema";
 
+import { competitionRank, type Rankable, type RankedUser } from "./rank";
+
 /**
  * 랭킹 집계 — 물리 테이블 없이 `run_sessions` 에서 파생한다(#85 · D6 = B).
  *
@@ -17,13 +19,7 @@ import { runSessions } from "@/server/db/schema";
 /** `select` 만 필요하다. `finish.ts` 의 tx2 transaction 안에서도 그대로 쓸 수 있다. */
 type Queryable = Pick<Db, "select">;
 
-export type Rankable = {
-  userId: string;
-  cumulativeDistanceM: number;
-  firstReachedAt: Date;
-};
-
-export type RankedUser = Rankable & { rank: number };
+export { competitionRank, type Rankable, type RankedUser };
 
 type UserAggregate = { cumulativeDistanceM: number; firstReachedAt: Date | null };
 
@@ -35,6 +31,11 @@ type UserAggregate = { cumulativeDistanceM: number; firstReachedAt: Date | null 
  * 누적 거리는 양 기여가 저장될 때만 늘어나므로, 지금 값에 **처음** 도달한 시각은 논리적으로
  * 마지막 양 기여 세션의 종료 시각과 같다 — 그 뒤로 값이 그대로이기 때문이다. 인정 거리 0인
  * 세션이 나중에 저장돼도 이 값은 바뀌지 않는다(0km 기여 invariant).
+ *
+ * **`mapWith(runSessions.finishedAt)` 을 빼지 않는다**(#144). 원시 `sql` 은 컬럼 매핑을 거치지 않아
+ * node-postgres 드라이버가 주는 timestamptz **문자열**이 그대로 온다 — `sql<Date>` 는 타입 주석일
+ * 뿐 변환하지 않는다. 문자열이면 누적 거리가 같은 사용자를 비교하는 순간 `getTime()` 에서 던져
+ * 랭킹 · 홈 · 종료 tx2 가 전부 실패했다. 컬럼과 같은 매퍼를 걸어 `Date` 로 받는다(`null` 은 그대로).
  */
 async function getSavedAggregatesByUser(
   db: Queryable,
@@ -43,7 +44,9 @@ async function getSavedAggregatesByUser(
     .select({
       userId: runSessions.userId,
       cumulativeDistanceM: sql<string>`coalesce(sum(${runSessions.tancheonDistanceM}), 0)`,
-      firstReachedAt: sql<Date | null>`max(${runSessions.finishedAt}) filter (where ${runSessions.tancheonDistanceM} > 0)`,
+      firstReachedAt: sql<Date | null>`max(${runSessions.finishedAt}) filter (where ${runSessions.tancheonDistanceM} > 0)`.mapWith(
+        runSessions.finishedAt,
+      ),
     })
     .from(runSessions)
     .where(eq(runSessions.saveState, "saved"))
@@ -58,37 +61,6 @@ async function getSavedAggregatesByUser(
       },
     ]),
   );
-}
-
-/**
- * D7 정책 — `cumulativeDistance DESC → firstReachedAt ASC` 정렬 + competition ranking
- * (`1,2,2,4`). 둘 다 같을 때만 같은 순위를 준다 — 거리가 같아도 먼저 도달한 쪽이 위이므로
- * (P5), 실제로는 시각까지 완전히 같은 경우에만 tie 다.
- */
-export function competitionRank(users: readonly Rankable[]): RankedUser[] {
-  const sorted = [...users].sort((a, b) => {
-    if (a.cumulativeDistanceM !== b.cumulativeDistanceM) {
-      return b.cumulativeDistanceM - a.cumulativeDistanceM;
-    }
-    return a.firstReachedAt.getTime() - b.firstReachedAt.getTime();
-  });
-
-  const ranked: RankedUser[] = [];
-  let previous: Rankable | null = null;
-  let rank = 0;
-
-  for (const [index, user] of sorted.entries()) {
-    const tied =
-      previous !== null &&
-      previous.cumulativeDistanceM === user.cumulativeDistanceM &&
-      previous.firstReachedAt.getTime() === user.firstReachedAt.getTime();
-
-    if (!tied) rank = index + 1;
-    ranked.push({ ...user, rank });
-    previous = user;
-  }
-
-  return ranked;
 }
 
 /** 지금 이 순간의 전체 랭킹(#87 이 재사용). 인정 거리가 0보다 큰 사용자만 올린다(P5). */
