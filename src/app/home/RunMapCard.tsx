@@ -18,6 +18,8 @@ type RunMapCardProps = {
   /** 첫 측위(#81). `gps` 가 `ready` 일 때만 값이 있고, 그때만 내 위치를 찍는다. */
   position: { latitude: number; longitude: number } | null;
   onStart: () => void;
+  /** 측위에 실패했을 때 다시 재 본다. `useGeolocationReady().retry` 그대로다(#119). */
+  onRetryGps: () => void;
 };
 
 /**
@@ -30,6 +32,12 @@ type RunMapCardProps = {
  */
 const MAP_BUTTON =
   "flex size-[46px] items-center justify-center bg-surface/94 after:absolute after:-inset-px after:content-['']";
+
+/**
+ * GPS 안내 카드 안의 액션. 거부는 링크, 측위 실패는 버튼이라 태그가 다를 뿐 같은 모양이다.
+ */
+const NOTICE_ACTION =
+  "mt-3.5 inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-base font-extrabold text-on-primary";
 
 /**
  * 탄천 Ranking Zone 지도 카드(디자인 L708-753).
@@ -45,6 +53,7 @@ export function RunMapCard({
   startError,
   position,
   onStart,
+  onRetryGps,
 }: RunMapCardProps) {
   const isReady = gps === "ready";
 
@@ -161,9 +170,14 @@ export function RunMapCard({
         {/*
           준비되지 않았을 때 지도를 덮는 안내(L724-730 구조).
 
-          권한 거부일 때만 위치정보 화면으로 가는 길을 함께 준다(#81) — 사용자가 브라우저
-          설정을 고쳐야 하는 상황이라 「다시 시도」로는 풀리지 않는다. 측위 실패는 자리를
-          옮기면 풀릴 수 있어 안내만 한다.
+          비준비 두 상태는 사용자가 할 일이 서로 달라서 다음 행동도 다르다(#81 · #119).
+          권한 거부는 브라우저 설정을 고쳐야 풀리므로 재측위가 소용없고 위치정보 화면으로
+          보낸다. 측위 실패는 자리를 옮기면 풀릴 수 있으므로 「다시 확인」으로 다시 잰다 —
+          안내만 두면 새로고침 말고는 빠져나갈 길이 없다.
+
+          연타 · 중복 요청은 따로 막지 않는다. 이 버튼은 `unavailable` 에서만 그려지는데
+          그 상태는 직전 요청이 이미 끝났다는 뜻이고, 누르는 순간 `checking` 으로 돌아가며
+          버튼 자체가 사라진다.
         */}
         {isReady ? null : (
           <div className="absolute inset-0 z-[6] flex items-center justify-center bg-foreground/26 p-[26px]">
@@ -178,12 +192,17 @@ export function RunMapCard({
               </p>
 
               {gps === "denied" ? (
-                <Link
-                  href="/settings/location"
-                  className="mt-3.5 inline-flex h-11 items-center justify-center rounded-xl bg-primary px-5 text-base font-extrabold text-on-primary"
-                >
+                <Link href="/settings/location" className={NOTICE_ACTION}>
                   위치정보 설정 보기
                 </Link>
+              ) : gps === "unavailable" ? (
+                <button
+                  type="button"
+                  onClick={onRetryGps}
+                  className={NOTICE_ACTION}
+                >
+                  다시 확인
+                </button>
               ) : null}
             </div>
           </div>
