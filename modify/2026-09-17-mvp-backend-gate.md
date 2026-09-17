@@ -4,7 +4,22 @@
 > `https://tanchunrun-git-develop-wol20670s-projects.vercel.app` · Neon integration `summer-bonus-83521166`.
 > 이 파일은 **판정 기록**이다. 기획 문서(`docs/01~07`)는 고치지 않았다.
 
-## 0. 판정 요약 — 1차 (실측 전)
+## 0. 판정 요약 — 2차 (로컬 실측 후 · 2026-09-17)
+
+| 구분 | 수 |
+| --- | --- |
+| 통과 | **10** — Root · Start · P8 · Result · Records · PB · Settings · Withdrawal · Mock · E2E |
+| 미통과 | **6** — Signup · Measurement · Finish · Ranking · Home · Failure |
+| 미검증(사유) | **3** — Auth(실제 provider 창에서 취소) · Location/GPS(화면 꺼짐 구간 · 실기기) · Map(NAVER 실제 load · load 실패) |
+
+**Phase 1 시작 조건 문장의 판정: 거짓.** 미통과 6항목의 원인은 **결함 5건(6절 F1~F5)** 이다. 특히 F1(랭킹 동점 시
+랭킹 · 홈 전체 오류 + 그 러닝의 저장 실패)과 F2(점 하나가 거절되면 그 러닝의 업로드 · 종료가 영구히 막힘)는
+「주요 flow 가 실제 데이터로 end-to-end 동작한다」를 조건부로만 참으로 만든다.
+
+2차 실측은 **로컬**(develop `4494f52` 빌드 + PostgreSQL 17)에서 했다. 방법 · 우회 · 한계는 6-1.
+1차 요약은 아래에 그대로 둔다.
+
+### 1차 요약 (실측 전)
 
 | 구분 | 수 |
 | --- | --- |
@@ -12,7 +27,7 @@
 | 미통과 | **0** |
 | 미검증(사유) | **18** — 실측(실제 OAuth · 실제 GPS · 두 계정 · 두 기기 · 실패 주입) 전 |
 
-**Phase 1 시작 조건 문장의 판정: 거짓(현재).**
+**Phase 1 시작 조건 문장의 판정(1차): 거짓.**
 
 > "현재 MVP 범위의 backend/auth/data/persistence 기능이 모두 실제 구현되어 있으며, frontend mock happy path 에
 > 의존하지 않고, MVP 의 주요 사용자 flow 가 실제 데이터로 end-to-end 동작하고, 남은 미검증 항목과 플랫폼 제약이
@@ -79,29 +94,29 @@ cookie 없이 요청했다. `getViewer()` 는 cookie 가 없으면 DB 를 보지
 
 ## 2. Gate 체크리스트 — 항목별 상태
 
-「코드 근거」는 **확인한 코드**이고 통과 근거가 아니다. 「절차」는 3절의 단계 번호다.
+「코드 근거」는 **확인한 코드**이고 통과 근거가 아니다. 「절차」는 3절의 단계 번호다. **판정은 2차(6절) 기준**이다 — 1차는 Mock 만 통과였다.
 
 | 항목 | 판정 | 코드 근거 | 실측 필요 → 절차 |
 | --- | --- | --- | --- |
-| **Auth / User** | 미검증 | `users` · `oauth_accounts`(PK = `provider + provider_account_id`) · `auth_sessions`(`token_hash` unique) · **이메일 · OAuth token 컬럼 없음**(`schema.ts:27-31` 주석 · 컬럼 목록) · 세션은 기기 행 단위 | 실제 Kakao · Google 로그인 · 취소 · 재로그인 동일 UID · 로그아웃 기기 세션 무효 · 다기기 → **S1 · S2 · S8** |
-| **Signup / Consent / Nickname** | 미검증 | `consents` unique(user, type, version) · `users_nickname_lower_unique`(대소문자 무시) · `NICKNAME_MIN/MAX_LENGTH = 2 / 10`(D4) | 동의 persist · 중복 닉네임 서버 거절 · 가입 중 재개 · 수정 persist → **S1** |
-| **Root Routing** | 미검증 | `app/page.tsx` — 로그아웃 → `/login` · 가입 중 → 동의 유무로 `/signup/consent` · `/signup/nickname` · active → `/running` · 그 외 `/home`. **로그아웃 갈래만 실측**(1-2) | 가입 중 · active 갈래 → **S1 · S2** |
-| **Location / GPS** | 미검증 | `useGeolocationReady` · `useRunTracker`(D10 accept 필터 · `visibilitychange → hidden` 시 watch 정리 `:588-621` · Wake Lock best-effort) · 판정 함수 `fix.test.ts` 12 | 실제 권한 요청 · denied · 끊김 · P1 · P2 · P3 · hidden 복귀 새 segment → **S2 · S9** |
-| **RunSession Start** | 미검증 | `run_sessions_active_user_unique`(**status = active 부분 unique index**) · 서버가 viewer 의 active 를 직접 조회(D8) · tracker token 해시 · generation | 중복 시작 거부 · 복원 · active 중 logout 거부 · 다기기 업로드 없음 → **S2 · S3** |
-| **Running Measurement** | 미검증 | 거리 · Zone · 페이스 · P2 · P9 · 경계점은 `src/domain/measure`(테스트 27) · ACK 연속 기준 · 멱등 · `point_conflict`(`ack.ts` · 테스트 23 · #114) | 실제 GPS 로 화면 = 저장값 · P9 구간 제외 · gap 이면 finish 불가 → 복구 → **S2 · S6** |
-| **Finish** | 미검증 | tx1(rate limit · D13 clamp · 상태 전이) / tx2(모든 generation 으로 확정 · PB · 순위 스냅샷) / tx3(failed 기록) · `ResultRecoveryGate` · 종료 의사 있으면 `/running` → 결과(#116) | 실패 A · 실패 B · 재실행 recovery · GPS 미재시작 → **S4 · S5** |
-| **P8 / Concurrency** | 미검증 | D7 정렬 `cumulativeDistance DESC → firstReachedAt ASC` · points 는 `run_sessions FOR UPDATE` 로 직렬화(#114) | 두 계정 동시 종료 · 지연 도착 · 같은 키 다른 값 동시 → **S6 · S7** |
-| **Result** | 미검증 | `getResult` 조건 `runSessions.id = ? AND runSessions.userId = ?` · 미인증 307(1-2) | 본인만 · 종료 전 접근 · 실제 수치 · reload → **S2 · S3** |
-| **Records** | 미검증 | `ownSaved(userId)` = `userId = ? AND saveState = 'saved'` · 목록 · 합계 · PB · 상세 같은 조건 | 방금 러닝 반영 · 상세 = 결과 · 타인 불가 → **S2 · S3** |
-| **Personal Best** | 미검증 | D6 = saved 세션에서 파생(`getPersonalBest`) | 갱신 러닝의 결과 배지 = 기록 PB · 거리 0 → **S2** |
-| **Ranking** | 미검증 | `rankingView` — 공개 필드 닉네임 · 누적 거리 0 제외 · D7 정렬 · 인원 제한 없음 | 실제 누적 · 0km 종료 불변 · 닉네임 변경 반영 · 동점 → **S2 · S7** |
-| **Home** | 미검증 | 닉네임 = `getViewer()` · 요약 = `rankingView` | 실제 값 · active 상태 → **S2** |
-| **Settings** | 미검증 | 닉네임 · 동의 = DB · 권한 = 브라우저 조회 · **로그아웃은 `auth/actions.ts:42` 가 `hasActiveRun` 으로, 탈퇴는 `withdraw.ts` 가 `users FOR UPDATE` 잠금 아래 active 를 다시 조회해** 서버에서 막는다 | 저장 · active 중 서버 차단 → **S8** |
-| **Withdrawal** | 미검증 | `withdraw.ts` — transaction 안 `users FOR UPDATE` → active 검사 → 삭제. 모든 FK `ON DELETE CASCADE`(consents · run_sessions · oauth_accounts · auth_sessions · route_points · rate_limits) | 테이블별 count 0 · 닉네임 재사용 · 재가입 새 UID · 전 기기 세션 무효 · 실패 롤백 → **S8** |
-| **Map(NAVER)** | 미검증 | 4화면이 `NaverTancheonMap` 사용 — `home/RunMapCard.tsx` · `running/RunMap.tsx` · `result/[sessionId]/page.tsx` · `records/[sessionId]/page.tsx` · **legacy `TancheonMap.tsx` 없음 · `src` 에 단어 `TancheonMap` 은 주석 2곳뿐** · 실패 시 지도 영역만 안내 | 등록 환경 load · ① load 실패 · ② credential 실패 · 실패 상태로 종료 saved → **S9** |
-| **Failure** | 미검증 | `src/server` 의 `catch` 중 성공 형태를 돌려주는 곳은 `runs/finish.ts:224-225` 두 줄뿐이고 **둘 다 가짜 성공이 아니다** — 동시에 들어온 다른 시도가 이미 `saved` 로 확정한 경우와, `finalization_failed` 상태를 그대로 알리는 경우다. **화면(`src/app`) 쪽 `catch` 는 전수 확인하지 않았다** | 각 operation 실패 주입 → **S4 · S5 · S9** |
+| **Auth / User** | 미검증 → 6-2 S1 · S8 (로컬 통과 · 실제 provider 창 취소만 남음) | `users` · `oauth_accounts`(PK = `provider + provider_account_id`) · `auth_sessions`(`token_hash` unique) · **이메일 · OAuth token 컬럼 없음**(`schema.ts:27-31` 주석 · 컬럼 목록) · 세션은 기기 행 단위 | 실제 Kakao · Google 로그인 · 취소 · 재로그인 동일 UID · 로그아웃 기기 세션 무효 · 다기기 → **S1 · S2 · S8** |
+| **Signup / Consent / Nickname** | **미통과** → F3 | `consents` unique(user, type, version) · `users_nickname_lower_unique`(대소문자 무시) · `NICKNAME_MIN/MAX_LENGTH = 2 / 10`(D4) | 동의 persist · 중복 닉네임 서버 거절 · 가입 중 재개 · 수정 persist → **S1** |
+| **Root Routing** | **통과** → 6-2 S1 · S2 | `app/page.tsx` — 로그아웃 → `/login` · 가입 중 → 동의 유무로 `/signup/consent` · `/signup/nickname` · active → `/running` · 그 외 `/home`. **로그아웃 갈래만 실측**(1-2) | 가입 중 · active 갈래 → **S1 · S2** |
+| **Location / GPS** | 미검증 → 6-2 S2 · S9 (화면 꺼짐 구간 · 실기기 GPS 남음) | `useGeolocationReady` · `useRunTracker`(D10 accept 필터 · `visibilitychange → hidden` 시 watch 정리 `:588-621` · Wake Lock best-effort) · 판정 함수 `fix.test.ts` 12 | 실제 권한 요청 · denied · 끊김 · P1 · P2 · P3 · hidden 복귀 새 segment → **S2 · S9** |
+| **RunSession Start** | **통과** → 6-2 S2 · S3 (사유 코드는 F3) | `run_sessions_active_user_unique`(**status = active 부분 unique index**) · 서버가 viewer 의 active 를 직접 조회(D8) · tracker token 해시 · generation | 중복 시작 거부 · 복원 · active 중 logout 거부 · 다기기 업로드 없음 → **S2 · S3** |
+| **Running Measurement** | **미통과** → F2 | 거리 · Zone · 페이스 · P2 · P9 · 경계점은 `src/domain/measure`(테스트 27) · ACK 연속 기준 · 멱등 · `point_conflict`(`ack.ts` · 테스트 23 · #114) | 실제 GPS 로 화면 = 저장값 · P9 구간 제외 · gap 이면 finish 불가 → 복구 → **S2 · S6** |
+| **Finish** | **미통과** → F1 · F2 | tx1(rate limit · D13 clamp · 상태 전이) / tx2(모든 generation 으로 확정 · PB · 순위 스냅샷) / tx3(failed 기록) · `ResultRecoveryGate` · 종료 의사 있으면 `/running` → 결과(#116) | 실패 A · 실패 B · 재실행 recovery · GPS 미재시작 → **S4 · S5** |
+| **P8 / Concurrency** | **통과** → 6-2 S6 · S7 | D7 정렬 `cumulativeDistance DESC → firstReachedAt ASC` · points 는 `run_sessions FOR UPDATE` 로 직렬화(#114) | 두 계정 동시 종료 · 지연 도착 · 같은 키 다른 값 동시 → **S6 · S7** |
+| **Result** | **통과** → 6-2 S2 · S3 | `getResult` 조건 `runSessions.id = ? AND runSessions.userId = ?` · 미인증 307(1-2) | 본인만 · 종료 전 접근 · 실제 수치 · reload → **S2 · S3** |
+| **Records** | **통과** → 6-2 S2 · S3 | `ownSaved(userId)` = `userId = ? AND saveState = 'saved'` · 목록 · 합계 · PB · 상세 같은 조건 | 방금 러닝 반영 · 상세 = 결과 · 타인 불가 → **S2 · S3** |
+| **Personal Best** | **통과** → 6-2 S2 · S3 | D6 = saved 세션에서 파생(`getPersonalBest`) | 갱신 러닝의 결과 배지 = 기록 PB · 거리 0 → **S2** |
+| **Ranking** | **미통과** → F1 | `rankingView` — 공개 필드 닉네임 · 누적 거리 0 제외 · D7 정렬 · 인원 제한 없음 | 실제 누적 · 0km 종료 불변 · 닉네임 변경 반영 · 동점 → **S2 · S7** |
+| **Home** | **미통과** → F1 | 닉네임 = `getViewer()` · 요약 = `rankingView` | 실제 값 · active 상태 → **S2** |
+| **Settings** | **통과** → 6-2 S2 · S8 · S9 | 닉네임 · 동의 = DB · 권한 = 브라우저 조회 · **로그아웃은 `auth/actions.ts:42` 가 `hasActiveRun` 으로, 탈퇴는 `withdraw.ts` 가 `users FOR UPDATE` 잠금 아래 active 를 다시 조회해** 서버에서 막는다 | 저장 · active 중 서버 차단 → **S8** |
+| **Withdrawal** | **통과** → 6-2 S8 | `withdraw.ts` — transaction 안 `users FOR UPDATE` → active 검사 → 삭제. 모든 FK `ON DELETE CASCADE`(consents · run_sessions · oauth_accounts · auth_sessions · route_points · rate_limits) | 테이블별 count 0 · 닉네임 재사용 · 재가입 새 UID · 전 기기 세션 무효 · 실패 롤백 → **S8** |
+| **Map(NAVER)** | 미검증 → 6-2 S9 (key 없는 로컬이라 실제 load · ① 남음) | 4화면이 `NaverTancheonMap` 사용 — `home/RunMapCard.tsx` · `running/RunMap.tsx` · `result/[sessionId]/page.tsx` · `records/[sessionId]/page.tsx` · **legacy `TancheonMap.tsx` 없음 · `src` 에 단어 `TancheonMap` 은 주석 2곳뿐** · 실패 시 지도 영역만 안내 | 등록 환경 load · ① load 실패 · ② credential 실패 · 실패 상태로 종료 saved → **S9** |
+| **Failure** | **미통과** → F4 (F2 도 해당) | `src/server` 의 `catch` 중 성공 형태를 돌려주는 곳은 `runs/finish.ts:224-225` 두 줄뿐이고 **둘 다 가짜 성공이 아니다** — 동시에 들어온 다른 시도가 이미 `saved` 로 확정한 경우와, `finalization_failed` 상태를 그대로 알리는 경우다. **화면(`src/app`) 쪽 `catch` 는 전수 확인하지 않았다** | 각 operation 실패 주입 → **S4 · S5 · S9** |
 | **Mock** | **통과** | 1-1 | — |
-| **E2E** | 미검증 | — | 연속 시나리오 → **S2** |
+| **E2E** | **통과** → 6-2 S2 (로컬) + 사용자 실측 보고 | — | 연속 시나리오 → **S2** |
 
 ---
 
@@ -263,12 +278,196 @@ CREATE TRIGGER gate_fail_boundary BEFORE INSERT ON route_points
 
 ## 4. 이 PR 에서 하지 않은 것
 
-- **코드 변경 없음** — 발견한 문제는 별도 Issue 로 올린다(#89 제외 범위)
-- 실측 전부 — 3절
+- **코드 변경 없음** — 발견한 문제는 별도 Issue 로 올린다(#89 제외 범위). 6절 F1~F5 도 여기서 고치지 않았다
 - `develop → main` 승격 판단 — 담당자
 
 ## 5. 실측 후 할 일
 
-1. 3절 결과를 단계별로 이 파일에 덧붙인다 — 근거(스크린샷 · SQL 결과 · Network 캡처)와 함께
-2. 2절 표의 판정을 갱신한다
-3. 0절의 Phase 1 시작 조건 문장을 다시 판정한다
+1. ~~3절 결과를 단계별로 이 파일에 덧붙인다~~ — 6절(2차 · 로컬)
+2. ~~2절 표의 판정을 갱신한다~~ — 2차 기준으로 갱신
+3. ~~0절의 Phase 1 시작 조건 문장을 다시 판정한다~~ — 거짓
+4. ~~F1~F5 fix Issue 등록~~ — #144 · #145 · #146 · #147 · #148. **#144 · #145 는 Phase 1 전에 고친다**. 같은 날 기존 후보도 #149~#156 으로 등록
+5. **integration · 실기기에서만 남은 것**(6-4) — fix merge 뒤 한 번에 돈다
+
+---
+
+## 6. 2차 실측 결과 — 로컬 (2026-09-17)
+
+### 6-1. 환경 · 방법 · 우회
+
+| 항목 | 내용 |
+| --- | --- |
+| 코드 | `develop` `4494f52` 를 `git archive` 로 저장소 밖에 풀어 `npm ci` → `npm run build` → `next start` (port 3000) |
+| DB | 저장소 밖 임시 PostgreSQL **17.10**(embedded) · `npm run db:migrate` 로 `0000`~`0003` 적용(이력 4행). **integration · production DB 는 건드리지 않았다** |
+| env | 셸 env 로만 준다. `APP_ORIGIN=http://localhost:3000` · OAuth 4개는 자리표시자. **`.env.local` 은 읽지도 복사하지도 않았다** — `drizzle.config.ts` 가 `.env.local` 을 먼저 읽기 때문에 사본에는 그 파일이 없다 |
+| 브라우저 | Playwright Chromium(headless) · 390×844 기본 · `ko-KR` |
+| DB 조회 | 실측 스크립트가 로컬 DB 에 직접 SQL. id 는 앞 8자리만 적는다 |
+
+**우회 세 가지 — 이 결과가 증명하지 않는 것을 분명히 한다.**
+
+1. **OAuth 를 거치지 않았다.** OAuth callback 직후 상태(`users(signing_up)` · `oauth_accounts` · `auth_sessions`)를 `identity.ts` 와
+   같은 모양으로 DB 에 만들고 raw token 을 cookie 로 줬다. 가입 · 동의 · 닉네임 이후는 실제 화면으로 진행했다.
+   **실제 provider 로그인 · 취소 창은 증명하지 않는다** — 사용자가 integration 에서 가입 · 로그인을 확인했다고 보고했다(6-3).
+2. **위치는 에뮬레이터다.** Playwright `setGeolocation` 으로 1.2초마다 3.6m 이동. 에뮬레이터 artifact 두 가지를 보정했다 —
+   ⓐ 좌표를 바꿀 때마다 새 좌표 직전에 `POSITION_UNAVAILABLE`(code 2)을 한 번 보낸다(보정 전에는 점마다 segment 가 끊겨 거리 0) ·
+   ⓑ watch 시작 시 override 를 건 시각(수 초 전)을 timestamp 로 준다. 둘 다 init script 로 걸렀고, **GPS 끊김은 accuracy 100m(unusable fix)로 재현**했다.
+   ⓑ 를 보정하기 전 결과가 F2 를 드러냈다.
+3. **UI 가 막은 경로는 server action 을 직접 불렀다** — 빌드 산출물 `server-reference-manifest.json` 의 action id 로 브라우저 안에서
+   `Next-Action` 요청(cookie · Origin 포함). 서버 가드만 보려는 것이다.
+
+**로컬이 대신하지 못하는 것** — Vercel 동작(#115 스트림 상한 · chunked) · NAVER 지도 실제 load(key 없음) · 화면 꺼짐(headless) ·
+실기기 GPS · 안드로이드 IME · Safari. → 6-4
+
+### 6-2. 단계별 결과
+
+#### S1 가입 · 로그인 · 루트 분기
+
+| 단계 | 결과 |
+| --- | --- |
+| 1 첫 로그인 → `/` | ✅ `/signup/consent`. 동의 후 `consents` 1행(`privacy_collection_use` · `2026-09-14`) |
+| 2 탭 닫고 재오픈 | ✅ `/signup/nickname` 으로 재개 |
+| 3 닉네임 형식 | ✅ 화면: 1자 「2자 이상」 · 특수문자 「특수문자는 사용할 수 없습니다」 · 공백 「공백은 포함할 수 없습니다」 — 모두 버튼 비활성 · 11자는 `maxlength=10` 이 막음. **서버**(action 직접): 11자 · 1자 · 특수문자 · 공백 모두 `format` / 2~10자 → `/home` · `active` · `signed_up_at` 채워짐 |
+| 4 대소문자만 다른 중복 | ❌ **DB 는 거절**(unique 위반 · 저장 안 됨)했지만 화면은 「저장에 실패했습니다. 다시 시도해주세요.」, 서버 응답 `failed`(기대 `duplicate`) → **F3** |
+| 5 취소 | ✅(분기만) `GET /api/auth/kakao/callback?error=access_denied` → `302 /login?error=cancelled` · 화면 「로그인이 취소되었습니다.」. 실제 provider 창은 미검증 |
+| 6 로그아웃 → 재로그인 | ✅ 확인 단계 → `/login` · 그 기기 `auth_sessions` 삭제 · 같은 `(provider, sub)` 로 다시 → **같은 UID** · 가입 절차 없이 `/home` |
+| 7 이메일 · token 컬럼 | ✅ 세 줄뿐 — `auth_sessions.token_hash` · `rate_limits.tokens` · `run_sessions.tracker_token_hash` |
+
+#### S2 연속 시나리오
+
+| 단계 | 결과 |
+| --- | --- |
+| 1 홈 → 시작 → `/running` | ✅ |
+| 2 Zone 안 이동 | ✅ 화면 총 거리 · 인정 거리 증가 · 「구역 내」 |
+| 2 화면 꺼짐 2분 | **미검증** — headless 는 `visibilitychange` 를 실제로 일으키지 못한다 |
+| 3 GPS 끊김 → 복구 | ✅ 「GPS 신호 약함 · 신호가 복구될 때까지 거리를 측정하지 않습니다」 → 복구 뒤 새 segment(저장 segment 0 → 1) |
+| 4 reload · `/` · 탭 닫고 재오픈 | ✅ 모두 `/running` 복원 · 거리 이어짐 |
+| 5 러닝 중 다른 탭 로그아웃 | ✅ 화면: 버튼 `aria-disabled` + 「진행 중인 러닝을 먼저 종료해 주세요」. **서버**: `signOut` · `withdraw` 모두 `active_session` · 세션 행 유지 |
+| 6 종료 → 결과 | ✅ 0.23km · 인정 0.23km · 01:35 · 6'53"/km · 1위 · PB 3종 배지 |
+| 7 기록 → 상세 | ✅ 같은 값(기록 탭은 소수 1자리 0.2km) |
+| 8 랭킹 · 홈 | ✅ 랭킹 1위 0.2km · 홈 「1위 / 1명 · 0.2」 |
+| 9 reload | ✅ 결과 화면 텍스트 동일 |
+| 10 SQL 대조 | ✅ `saved` · `total 230` · `tancheon 230` · `95s` · `413s/km` · `rank 1 ranked` · `pb_flags` 3 = 화면값. points 66 · segment 0~3 |
+| 11 Zone 밖 0km | ✅ 총 43m · 인정 0 · 「랭킹 미반영」 · `unranked` · `pb_flags` 없음 · **랭킹 누적 · 순서 · firstReachedAt 불변** |
+| 12 persistence | 서버 DB — `run_sessions` · `route_points` · 집계는 조회 시 파생 / 기기 IndexedDB `tancheonrun@2` — `tracker`(record) · `points`(미ACK 버퍼) · `finishIntent`(종료 의사). saved 뒤 `points` · `finishIntent` 0 확인(S4) / sessionStorage — 설정 복귀 탭(#127 reload 뒤에도 복귀 확인) |
+| — 종료 전 결과 URL | ✅ 본인이 `/result/{active id}` → `/running` 으로 돌려보냄 · 상태 불변 · `/records/{active id}` 404 |
+
+#### S3 다기기 · 「여기서 종료」(#116) · 권한
+
+| 단계 | 결과 |
+| --- | --- |
+| 2 P2 같은 계정 | ✅ 「다른 기기에서 진행 중」 · 버튼 2개 · P2 의 API 요청 **0** |
+| 3 token 없이 직접 | ✅ points · finish 모두 `403 not_tracker` |
+| 4 **#116** 여기서 종료 | ✅ 확인 문구 · **포커스 = 취소** · 종료하기 → 같은 id 결과 · `saved` · generation 2 |
+| 5 P1 | ✅ 다음 업로드 `403` · reload → `/home`. ❌ **P1 화면에는 8초 뒤에도 안내 없음**(러닝 중 화면 그대로) → **F5** |
+| 6 **#116** 탭이 죽는 경우 | ✅ 종료 의사가 IndexedDB 에 남은 순간 탭을 닫고 새 탭 `/running` → 결과 · `saved` · 의사 삭제 — **3/3**. 첫 시도 1회는 검사 스크립트의 IndexedDB 폴링이 연결을 닫지 않은 상태에서 실패했고, 원인을 확정하지는 못했다 |
+| 7 **#116** 점 0개 | ✅ P1 업로드를 막은 채 P2 종료 → 점 0 · 거리 0 · 페이스 없음 · `unranked` · 랭킹 누적 불변 |
+| 8 권한(계정 B → A) | ✅ `/result/{A}` · `/records/{A}` 404 · points · finish `403 not_tracker` · retry `404 not_found`(saved · active 둘 다) |
+| 9 이어서 측정 | ✅ generation 2 · P1 다음 업로드 `409 tracker_superseded` · **인수 뒤 P1 이 보낸 점 0건 저장**(g1 은 인수 전 6점뿐) · P2 종료 saved. P1 화면 안내 없음 → **F5** |
+
+#### S4 실패 A · recovery · #117
+
+| 단계 | 결과 |
+| --- | --- |
+| 1 `/api/runs/*` 차단 후 종료 | ✅ 결과 화면 「저장하는 중이에요…」 · `finishIntent` 1 · 버퍼 점 5 · 서버 `active` |
+| 2 **#117** 「다시 시도」 8연타 | ✅ **동시 in-flight 최대 1** — 요청이 겹치지 않음 |
+| 3 같은 탭 `/running` | ✅ 결과로 돌아옴 · 좌표를 바꿔도 버퍼 점 5 → 5(GPS 재시작 없음) |
+| 4 다른 기기 | ✅ 서버 `active` · `/` → `/running` · signOut · withdraw `active_session`. 시작은 거절되나 사유 `failed` → F3 |
+| 5 차단 해제 | ✅ 4초 뒤 `saved` · 점 13 · 로컬 `finishIntent` · `points` 0 |
+| 6 탭 닫고 재오픈 | ✅ 새 탭 `/running` → 결과 · `saved` |
+| 7 완전 Offline | ❌ 종료하면 결과 화면 이동이 실패해 **브라우저 오류 페이지**(`chrome-error://`). 온라인 복귀만으로는 저장되지 않고, 사용자가 앱을 다시 열면 결과로 가서 `saved` → **F4**(데이터는 보존) |
+
+#### S5 실패 B — 로컬 DB trigger
+
+| 단계 | 결과 |
+| --- | --- |
+| 1 경계를 넘는 러닝 종료 | ✅ 「아직 저장하지 못했어요. 연결을 확인하고 다시 시도해주세요.」 · 다시 시도 |
+| 2 SQL · 목록 | ✅ `finished` · `failed` · 기록 목록에 없음 · 상세 404 · 랭킹 누적 불변 |
+| 3 trigger 제거 → 다시 시도 | ✅ `saved` · 총 173m · 인정 130m · 경계점 1 · trigger 잔여 0 |
+
+#### S6 points ACK · 동시성 · 요청 크기
+
+| 단계 | 결과 |
+| --- | --- |
+| 1 **#114** 같은 키 다른 값 동시 | ✅ **21회 모두 200 하나 · `409 point_conflict` 하나** · 중복 행 0 |
+| 2 한 요청 안 중복 | ✅ `409 point_conflict` |
+| 3 같은 점 재전송 · 순서 섞기 | ✅ 동일 값 재전송 200 · ACK 불변 · 행 1 / 섞은 배치 ACK 연속 기준 |
+| 4 빈 자리 | ✅ ACK 가 빈 자리에서 멈춤 → finish `409 points_missing` · `expectedNextRawSeq 25` · 서버 `active` → 채우면 ACK 27 → finish `saved` |
+| 5 **#115** 인증된 상한 초과 | ✅ 300KB 본문 `413` · finish 8KB `413` · 점 501개 `413 too_many_points`. **스트림 업로드는 미검증** — 로컬은 HTTP/1.1 이라 Chrome 이 보내지 않는다 |
+
+#### S7 두 계정 · 랭킹
+
+| 단계 | 결과 |
+| --- | --- |
+| 1 거의 동시 종료 | ✅ 둘 다 `saved` · 스냅샷 1위 · 2위 |
+| 2 동점 정렬 · 공동 순위 | ❌ **누적이 같은 사용자가 생기는 순간 랭킹 · 홈이 모두 오류 화면** → **F1**. 동점 없는 정렬(거리 내림차순)은 정상 |
+| 2b 종료로 동점이 되는 경우 | ❌ **그 러닝이 `finished · failed`** · 동점이 있는 한 다시 시도도 실패 · 동점 사용자를 지우자 다시 시도 → `saved` → **F1** |
+| 3 닉네임 변경 | ✅ 저장 → `/settings` · 대소문자만 바꾸기 저장됨. 다른 사람 닉네임(대소문자 차이)으로 변경 → 거절되나 「저장에 실패했습니다」 → F3. 바꾼 닉네임이 랭킹에 바로 표시되고 순위 불변(동점 데이터를 지운 뒤 확인) |
+
+#### S8 설정 · 탈퇴
+
+| 단계 | 결과 |
+| --- | --- |
+| 1 P1 탈퇴 | ✅ 안내 → 「정말 탈퇴하시겠어요?」 → 탈퇴하기 → `/login` |
+| 2 P2 새로고침 | ✅ `/login` |
+| 3 SQL | ✅ `users` · `consents` · `oauth_accounts` · `auth_sessions` · `run_sessions` · `route_points` · `rate_limits` **전부 0**(전: 1 · 1 · 1 · 5 · 1 · 15 · 1) |
+| 4 랭킹 · 옛 닉네임 | ✅ 랭킹에서 사라짐 · 계정 A 가 옛 닉네임(대소문자 달리) 사용 |
+| 5 같은 Google 재가입 | ✅ 새 UID · `signing_up` · 러닝 0 · `/signup/consent` |
+| 6 차단 · 롤백 | ✅ 진행 중 · 종료 대기(S4) 모두 `active_session`. `oauth_accounts` 삭제에 실패를 주입 → `failed` · users · oauth · 세션 **모두 유지** · 로그인 유지 |
+
+#### S9 지도 · 권한 · #111 QA
+
+| 단계 | 결과 |
+| --- | --- |
+| 1 · 2 지도 load · ① load 실패 | **미검증** — 로컬에 NAVER key 가 없다 |
+| 3 ② credential 실패 | ✅(로컬판) 모든 지도 자리 「지도를 사용할 수 없습니다」 · **이 상태로 S2~S8 의 모든 러닝이 측정 · 저장됨** |
+| 4 가로 넘침 | ✅ 320px · 390px 에서 `/home` · `/ranking` · `/records` · 기록 상세 · 결과 · `/settings` · 위치 · 동의 · 닉네임 · 탈퇴 10경로 **넘침 0**. 회전 · resize 미검증 |
+| #119 첫 측위 실패 | ✅ 「GPS 신호 없음」 + 「다시 확인」 → 누르면 시작 버튼 활성 |
+| #124 denied | ✅ 홈 「위치 권한을 허용해야 러닝을 시작할 수 있습니다 · 위치정보 설정 보기」 + 비활성 「위치 권한 필요」 / 설정 「권한 필요」 · 허용 버튼 없음 · 「브라우저 설정의 사이트 권한에서 위치를 허용해 주세요」. Safari 미검증 |
+| #120 키보드 | ✅ 포커스 + Space 1회 → 끝까지 밀림 · 「한 번 더 누르면 종료」 · 종료 안 됨 / 두 번째 확정 키로 종료(S2~S7 전부 이 방식) |
+| #120 pointer cancel | ✅ 드래그 중 49 → `pointercancel` → 0 · 러닝 유지 |
+| #121 본인 미등재 | ✅ 「아직 탄천 Ranking Zone 인정 거리가 없어요 · … 달리면 … 랭킹에 올라요 · 달리러 가기」 |
+| #122 기록 0건 | ✅ 「아직 기록이 없습니다 · 첫 러닝을 마치면 … · 첫 러닝 시작하기」 |
+| #123 Done/Enter | ✅(데스크톱 Enter) 가입 · 수정 모두 제출. **안드로이드 한글 IME 미검증** |
+| #125 문구 | ✅ 429 → 「지금은 전송 속도를 잠시 늦추고 있어요 …」 / 네트워크 실패 → 「연결이 원활하지 않아 기록 전송이 미뤄지고 있어요 …」 — 구분됨 |
+| #127 설정 뒤로 | ✅ 랭킹 → 설정 → 뒤로 = `/ranking` · 기록 → 설정 → reload → 뒤로 = `/records` · 새 탭 `/settings` → `/home` · 새 탭 `/settings/location` → `/settings` · 설정 → 위치 → 뒤로 = `/settings` |
+
+### 6-3. 사용자 실측 보고 (integration · 2026-09-17)
+
+사용자가 integration 에서 **가입 · 로그인(S1)** 과 **탄천에서의 실제 러닝 → 결과** 를 확인했다고 보고했다. 스크린샷 · SQL 근거는 없다.
+세부(화면 꺼짐 · GPS 끊김 · 0km 등)는 보고 범위가 아니라 판정에 쓰지 않았다.
+
+### 6-4. 여전히 integration · 실기기에서만 확인할 수 있는 것
+
+- 실제 Kakao · Google **취소** 창
+- **화면 꺼짐 2분**(D1 · hidden 구간 제외 · 새 segment) — 휴대폰
+- NAVER 지도 **실제 load · route · Zone polygon · ① load 실패 「다시 시도」**
+- **#115 인증된 스트림 업로드** 413 — Vercel(HTTP/2)
+- **#123 안드로이드 한글 IME** · **#124 Safari**
+- F2 의 **실기기 빈도** — 첫 fix timestamp 가 `started_at` 보다 이른 일이 실제로 생기는가
+
+### 6-5. 결함 — 미통과의 원인
+
+**F1 · 심각 — 누적 인정 거리가 같은 사용자가 생기면 랭킹 · 홈이 전원에게 깨지고, 동점을 만드는 러닝은 저장되지 않는다 → #144**
+
+- 재현: 서로 다른 두 사용자의 `sum(tancheon_distance_m)`(미터 정수)이 같아지게 한다 → `/ranking` · `/home` 오류 화면. 그 상태를 만드는 러닝을 종료하면 `finished · failed` · 다시 시도도 실패
+- 원인: `src/server/ranking/index.ts:46` 의 `sql<Date | null>\`max(finished_at) …\`` 은 drizzle node-postgres 에서 **문자열**로 온다. 타입 주석만 `Date` 다. 비교 함수(`:73` · `:84`)가 거리가 같을 때만 `firstReachedAt.getTime()` 을 불러 `TypeError: a.firstReachedAt.getTime is not a function` — 서버 로그로 확인
+- 영향: `getLiveRanking`(랭킹 · 홈) · `computeRankSnapshot`(finish tx2). `competitionRank` 단위 테스트는 `Date` 를 넣으므로 통과한다
+
+**F2 · 높음 — 점 하나가 `invalid_recorded_at` 으로 거절되면 그 러닝의 업로드 · 종료가 영구히 막힌다 → #145**
+
+- 재현: `recordedAt < started_at` 인 점이 버퍼 맨 앞에 있게 한다(로컬은 에뮬레이터의 오래된 timestamp 로 발생) → points 가 매번 `400 invalid_recorded_at rawSeq 1` → 화면은 「연결이 원활하지 않아…」로 계속 재시도 → 서버 점 0 · 종료 뒤 결과 「아직 저장하지 못했어요」에서 멈춤
+- 원인: 서버 `src/server/runs/points.ts` `outOfRangePoint` 는 미래는 60초 여유, **과거는 `started_at` 그대로(여유 0)**. 배치 전체를 거절한다. 클라이언트 `src/app/running/useRunTracker.ts` flush 는 `point_conflict` 만 그 점을 빼고, **`invalid_recorded_at` 분기가 없어** `offline` 백오프로 같은 배치를 영원히 다시 보낸다
+- 실기기 발생 조건(미검증): 기기 시계가 서버보다 늦거나, 첫 fix 의 timestamp 가 `startRun` 시각보다 이른 경우
+
+**F3 · 중간 — DB unique 위반을 알아채지 못한다(`duplicate` · `active_exists` 가 `failed` 로 나간다) → #146**
+
+- 원인: `src/server/db/errors.ts` `isUniqueViolation` 은 `error.code` 만 본다. drizzle-orm `0.45.2` 는 pg 오류를 `DrizzleQueryError` 로 감싸고 원 오류를 `cause` 에 둔다(`node_modules/drizzle-orm/pg-core/session.js`)
+- 영향: 닉네임 가입 · 수정 중복 → 「저장에 실패했습니다. 다시 시도해주세요.」(다시 시도해도 실패) · `createRun` 동시 시작 → `failed` · `identity.ts:92` 동시 첫 로그인 재시도 분기 미작동. **중복 자체는 DB 가 막고 있다**
+
+**F4 · 중간(UX) — 완전 오프라인에서 종료하면 브라우저 오류 페이지로 떨어진다 → #147**
+
+- 결과 화면 이동(서버 렌더)이 실패한다. 온라인 복귀만으로는 저장되지 않고 사용자가 앱을 다시 열어야 한다. 종료 의사는 남아 있어 데이터는 보존된다
+
+**F5 · 낮음(UX) — 인수당하거나 다른 기기가 종료한 기기에 안내가 없다 → #148**
+
+- 서버는 `403` · `409` 로 막고 업로드도 멈추지만, 그 기기 화면은 러닝 중 그대로다. reload 해야 `/home` 으로 간다
