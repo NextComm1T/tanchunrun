@@ -53,12 +53,12 @@ MVP backend 구현 Issue 의 담당·상태 표다. 화면(UI/mock) 구현 이�
 
 - 이 흐름은 전부 지났다 — #85 · #86 · #87 · #88 이 모두 merge 돼 **#89 가 열렸다**.
 - 아직 브랜치가 없는 Issue: #89.
-- **#89 착수 전에 확인할 것 두 가지** — ① **Vercel preview 배포가 현재 실패한다.** 문서 한 줄만 바꾼 PR #106 도 같은 실패라 코드 원인이 아니라 Vercel 프로젝트 쪽 문제이고, integration 검증 전에 해소돼야 한다. ② **D3-A 가 2차 CONFIRMED(2026-09-17)로 갱신됐다** — Google 이 Cloud 프로젝트 2개 분리에서 **프로젝트 1개 + OAuth Web client 2개**(Nonprod = local + develop · Production = production)로 바뀌었다. Vercel Preview(branch=`develop`)는 Nonprod client, Production 은 Production client 를 쓴다. **Kakao · Neon · Vercel · migration · local DB 정책은 1차 그대로 유지**다. 값 정본은 #78 ledger.
+- **#89 착수 전에 확인할 것 두 가지** — ① **Vercel 배포가 `wol20670s-projects` 로 이관됐다**(2026-09-17 · D3-B 2차 CONFIRMED). production 도메인 `tanchunrun.vercel.app` 은 그대로지만 **Production env 6개가 미설정이라 현재 전 경로 500** 이다 — env 설정 + Redeploy 가 integration · production 검증의 선행이다. (어제까지 있던 preview 배포 실패는 해소됐다.) ② **D3-A 가 2차 CONFIRMED(2026-09-17)로 갱신됐다** — Google 이 Cloud 프로젝트 2개 분리에서 **프로젝트 1개 + OAuth Web client 2개**(Nonprod = local + develop · Production = production)로 바뀌었다. Vercel Preview(branch=`develop`)는 Nonprod client, Production 은 Production client 를 쓴다. **Kakao · Neon · Vercel · migration · local DB 정책은 1차 그대로 유지**다. 값 정본은 #78 ledger.
 - B 트랙과 **병렬로 가능한 작업**(merge 선행과 무관):
   - #79 의 DB · OAuth 실검증 — 빈 `postgres:17` 에 migration `0000`~`0003` 순차 적용 + 로그인 1회. #92 merge 시점에 수행하지 못했고 **#89 전에 반드시 필요**하다
-  - NAVER Console 의 integration · production Web 서비스 URL 등록과 Vercel env(#78 D3-B · PR #96 본문 상단)
+  - NAVER Console 의 integration · production Web 서비스 URL 등록과 Vercel env(#78 D3-B **2차** · PR #96 본문 상단). **integration 호스트가 `tanchunrun-git-develop-wol20670s-projects.vercel.app` 로 바뀌었다** — 구 `seungbinyangs` 호스트는 등록 목록에서 뺀다(Application 당 10개 상한)
   - `.env.example` 에 `NEXT_PUBLIC_NAVER_MAP_KEY_ID` 이름 추가(값 없이)
-  - Vercel Deployment Protection — develop branch alias 가 SSO 뒤라 #89 의 integration 검증이 막힌다
+  - Vercel Deployment Protection — 구 프로젝트의 develop alias 가 SSO 뒤였다. **신규 스코프에서 첫 develop preview 배포 후 alias 호스트와 보호 설정을 재확인한다**(#89 integration 검증 선행)
 - 이 절은 snapshot 이라 금방 낡는다. **현재 값은 #78 본문 ledger 와 각 Issue 본문에서 확인한다.**
 
 ## B0(#78)는 구현 Issue 가 아니다
