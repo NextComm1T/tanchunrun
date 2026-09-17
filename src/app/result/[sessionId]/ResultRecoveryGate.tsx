@@ -21,6 +21,9 @@ import {
  *
  * `finalization_pending` · `finalization_failed` 는 이미 `finished` 인 세션의 tx2 재시도
  * (`retryFinalization`)다.
+ *
+ * **재시도는 한 번에 하나만 돈다.** 진입점이 마운트 · `online` · 백오프 타이머 ·
+ * 「다시 시도」 버튼 넷이라 그냥 두면 겹친다(`inFlightRef` · `restart`).
  */
 
 type ResultRecoveryGateProps = {
@@ -52,14 +55,24 @@ export function ResultRecoveryGate({
   const attemptRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  /**
+   * 재시도 진입점이 넷이다 — 마운트 · `online` 이벤트 · 백오프 타이머 · 「다시 시도」 버튼.
+   * 겹쳐 돌면 같은 IndexedDB 버퍼를 교차로 읽고 지우면서 같은 점을 두 번 올리고,
+   * `points` · `finish` bucket 을 두 번 쓴다(#83 D11). 그래서 **한 번에 하나만** 돌게 막는다.
+   * dev StrictMode 의 이중 마운트도 여기서 걸린다.
+   */
+  const inFlightRef = useRef(false);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // dev StrictMode 는 mount → cleanup → mount 로 돈다. 여기서 다시 true 로 돌려놓지
+    // 않으면 첫 cleanup 이 남긴 false 가 그대로 남아, 이후 모든 `mountedRef` 가드가
+    // 조기 return 하고 오류 UI 와 재시도 예약이 dev 에서 통째로 죽는다.
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
       if (timerRef.current !== null) clearTimeout(timerRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   const scheduleRetry = useCallback((run: () => void, explicitMs?: number) => {
     if (timerRef.current !== null) clearTimeout(timerRef.current);
@@ -120,17 +133,22 @@ export function ResultRecoveryGate({
 
   /** `active` + 로컬 intent 경로 — flush 후 `finishRun` 을 부른다. */
   const runFromIntent = useCallback(async () => {
-    const intent = await readFinishIntent({ userId, sessionId }).catch(() => null);
-    if (!intent) {
-      // 다른 기기 · 직접 URL 접근이다(D14). 이 기기는 종료 intent 가 없다.
-      router.replace("/running");
-      return;
-    }
-
-    setPhase("working");
-    setMessage("저장하는 중이에요…");
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
 
     try {
+      const intent = await readFinishIntent({ userId, sessionId }).catch(
+        () => null,
+      );
+      if (!intent) {
+        // 다른 기기 · 직접 URL 접근이다(D14). 이 기기는 종료 intent 가 없다.
+        router.replace("/running");
+        return;
+      }
+
+      setPhase("working");
+      setMessage("저장하는 중이에요…");
+
       await flushBuffered(intent);
 
       const response = await fetch(`/api/runs/${sessionId}/finish`, {
@@ -182,11 +200,16 @@ export function ResultRecoveryGate({
       setPhase("error");
       setMessage("아직 저장하지 못했어요. 연결을 확인하고 다시 시도해주세요.");
       scheduleRetry(() => void runFromIntent());
+    } finally {
+      inFlightRef.current = false;
     }
   }, [flushBuffered, router, scheduleRetry, sessionId, userId]);
 
   /** `finalization_pending` · `finalization_failed` 경로 — tx2 만 다시 시도한다. */
   const runRetryFinalization = useCallback(async () => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+
     setPhase("working");
     setMessage("저장하는 중이에요…");
 
@@ -224,10 +247,27 @@ export function ResultRecoveryGate({
       setPhase("error");
       setMessage("아직 저장하지 못했어요. 잠시 후 다시 시도해주세요.");
       scheduleRetry(() => void runRetryFinalization());
+    } finally {
+      inFlightRef.current = false;
     }
   }, [router, scheduleRetry, sessionId]);
 
   const run = serverState === "active" ? runFromIntent : runRetryFinalization;
+
+  /**
+   * 사용자의 「다시 시도」와 `online` 이벤트가 **같은 경로**를 타게 한다.
+   *
+   * 예약된 백오프 타이머를 먼저 끄는 것이 핵심이다 — 끄지 않으면 지금 시작한 것과 별개로
+   * 나중에 타이머가 또 발사되고, 실패할 때마다 다시 예약돼 재시도 체인이 늘어난다.
+   */
+  const restart = useCallback(() => {
+    attemptRef.current = 0;
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    void run();
+  }, [run]);
 
   // 마운트 시 한 번 시작한다. `run` 은 매 렌더 새로 만들어지지만 의존값이 바뀌지 않는 한
   // 같은 동작이라 재실행할 필요가 없다.
@@ -238,15 +278,9 @@ export function ResultRecoveryGate({
 
   // 연결이 돌아오면 바로 다시 시도한다(D11 · P14).
   useEffect(() => {
-    function onOnline() {
-      attemptRef.current = 0;
-      if (timerRef.current !== null) clearTimeout(timerRef.current);
-      void run();
-    }
-
-    window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
-  }, [run]);
+    window.addEventListener("online", restart);
+    return () => window.removeEventListener("online", restart);
+  }, [restart]);
 
   return (
     <div
@@ -264,10 +298,7 @@ export function ResultRecoveryGate({
       {phase === "error" ? (
         <button
           type="button"
-          onClick={() => {
-            attemptRef.current = 0;
-            void run();
-          }}
+          onClick={restart}
           className="h-[52px] rounded-xl bg-primary px-6 text-[17px] font-extrabold text-on-primary"
         >
           다시 시도
