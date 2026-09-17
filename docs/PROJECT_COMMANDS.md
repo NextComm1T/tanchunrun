@@ -21,7 +21,7 @@ npm run dev
 provider 에 등록된 callback 주소가 어긋나서 로그인이 실패한다. 3000 을 쓰는 프로세스를 먼저 끄고
 다시 띄운다. (화면만 보고 로그인을 안 쓸 거라면 3001 이어도 상관없다 — 그래도 `.env.local` 은 있어야 뜬다.)
 
-`/` 로 들어가면 `/login` 으로 보낸다. 로그인 상태에 따른 분기는 아직 붙지 않았다(#80).
+`/` 로 들어가면 서버가 상태를 보고 보낸다 — 로그아웃 → `/login` · 가입 중 → `/signup/consent` 또는 `/signup/nickname` · 진행 중 러닝 → `/running` · 그 외 → `/home`.
 
 ## 명령
 
@@ -199,6 +199,22 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/login
 #   Tailwind 는 클래스 오타가 나도 빌드가 통과한다. 눈으로 확인해야 한다.
 grep -o "bg-surface{[^}]*}" .next/static/chunks/*.css
 ```
+
+## MVP Gate 검증에 쓰는 것 (#89)
+
+전체 절차 · 판정은 [modify/2026-09-17-mvp-backend-gate.md](../modify/2026-09-17-mvp-backend-gate.md). 여기는 명령만 모은다.
+
+```bash
+# 미인증 접근이 막히는지 — cookie 가 없으면 getViewer() 가 DB 를 보지 않는다
+curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" \
+  https://tanchunrun-git-develop-wol20670s-projects.vercel.app/records      # 307 → /login
+
+# 빌드 산출물에 mock 이 섞이지 않았는지 — npm run build 뒤에
+grep -rlE 'MOCK_[A-Z]|/mock\.(ts|js)|mockData' .next/server .next/static | wc -l   # 0
+```
+
+- **DB 확인은 Neon 콘솔 SQL Editor 에서 `Read-only` 를 켠 채로** 한다. 실패 B 의 trigger 처럼 쓰기가 필요한 단계만 잠시 끄고, **integration 에서만** 한다.
+- API 를 직접 부를 때 tracker token 은 IndexedDB 에만 있다. **콘솔에 찍거나 어디에 붙이지 않는다.**
 
 ## 주의
 
