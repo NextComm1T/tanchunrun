@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/shared/AppShell";
@@ -17,6 +18,9 @@ import { SettingsGearLink } from "./SettingsGearLink";
 
 /** 기록 0건 안내(F7 예외). 디자인에 빈 상태가 없어 문구는 문서를 따른다. */
 const EMPTY_RECORDS_NOTICE = "아직 기록이 없습니다";
+/** 0건인 사람에게 다음 행동을 알려 준다(#122). 안내 문구도 CTA 도 디자인에 없다. */
+const EMPTY_RECORDS_HINT = "첫 러닝을 마치면 여기에 기록이 쌓입니다.";
+const EMPTY_RECORDS_CTA = "첫 러닝 시작하기";
 
 /**
  * 기록 탭(#44 · #86 · F7 · R23).
@@ -75,10 +79,22 @@ export default async function RecordsPage() {
               ))}
             </ul>
           ) : (
-            // 디자인에 빈 상태가 없다. 랭킹 탭(#43)의 빈 상태와 같은 모양으로 둔다.
-            <p className="py-16 text-center text-content text-muted">
-              {EMPTY_RECORDS_NOTICE}
-            </p>
+            /*
+              디자인에 빈 상태가 없다. 안내 문구와 배치는 #44 에서 확정된 대로 랭킹 탭(#43)과
+              같은 모양을 그대로 두고, 그 아래에 **다음 행동만** 덧붙인다(#122) — 기록이 0건인
+              사람에게는 이 화면에 러닝을 시작하러 갈 길이 없었다. 버튼 모양은 정본의 주요
+              CTA(L367 · L471)와 같은 토큰이다.
+            */
+            <div className="py-16 text-center">
+              <p className="text-content text-muted">{EMPTY_RECORDS_NOTICE}</p>
+              <p className="mt-2 text-note text-muted">{EMPTY_RECORDS_HINT}</p>
+              <Link
+                href="/home"
+                className="mt-6 flex h-[58px] w-full items-center justify-center rounded-xl bg-primary text-button font-extrabold text-on-primary shadow-primary"
+              >
+                {EMPTY_RECORDS_CTA}
+              </Link>
+            </div>
           )}
         </RecordSection>
       </div>
