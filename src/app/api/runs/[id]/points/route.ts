@@ -1,5 +1,6 @@
 import { readAuthEnv } from "@/server/auth/config";
 import { getViewer } from "@/server/auth/session";
+import { declaresTooLarge, readBodyWithLimit } from "@/server/runs/bodyLimit";
 import {
   appendPoints,
   type IncomingPoint,
@@ -95,17 +96,34 @@ export async function POST(
   }
 
   /*
-    크기부터 본다. DB 를 건드리지 않는 검사라 rate-limit 행을 읽지도 소비하지도 않는다 —
-    「인증 · 인가 전에는 bucket 을 건드리지 않는다」는 규칙을 깨지 않는다.
+    처리 순서(#115) — **비용이 작은 검사부터** 한다.
+
+    1. 선언된 크기(`Content-Length`). 헤더만 본다.
+    2. ① 인증. cookie 가 없으면 DB 도 보지 않는다(`getViewer`). **미인증 요청은 본문을 읽지 않는다.**
+    3. 실제 크기. 상한까지만 읽고 넘으면 멈춘다 — 1 의 선언은 믿지 않는다(chunked 에는 헤더가 없다).
+    4. 형태 검증.
+    5. ② 인가 → ③ rate limit → ④ 저장(`appendPoints`).
+
+    rate-limit 행은 5 에서만 닿는다 — 1~4 에서 끊긴 요청은 bucket 을 읽지도 소비하지도 않는다(#83).
   */
-  const body = await request.text();
-  if (new TextEncoder().encode(body).length > POINTS_MAX_BODY_BYTES) {
+  if (declaresTooLarge(request.headers.get("content-length"), POINTS_MAX_BODY_BYTES)) {
     return fail(413, { error: "payload_too_large" });
+  }
+
+  // ① 인증.
+  const viewer = await getViewer();
+  if (!viewer) return fail(401, { error: "unauthenticated" });
+
+  const read = await readBodyWithLimit(request.body, POINTS_MAX_BODY_BYTES);
+  if (!read.ok) {
+    return read.reason === "too_large"
+      ? fail(413, { error: "payload_too_large" })
+      : fail(400, { error: "invalid_body" });
   }
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(body);
+    parsed = JSON.parse(read.text);
   } catch {
     return fail(400, { error: "invalid_body" });
   }
@@ -135,10 +153,6 @@ export async function POST(
     // client 는 점을 버리지 않는다 — 버퍼를 줄여 다시 보낸다.
     return fail(413, { error: "too_many_points" });
   }
-
-  // ① 인증.
-  const viewer = await getViewer();
-  if (!viewer) return fail(401, { error: "unauthenticated" });
 
   const { id: sessionId } = await context.params;
 

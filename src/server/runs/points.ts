@@ -22,8 +22,12 @@ import { hashTrackerToken } from "./tracker";
  *
  * ① 인증 → ② 인가(소유 · active · tracker token · generation) → ③ rate limit → ④ 저장.
  *
+ * ① 과 본문 검사는 route(`app/api/runs/[id]/points/route.ts`)가 한다 — 선언된 크기 → ① 인증 →
+ * 실제 크기(상한까지만 읽는다) → 형태 순이고, **미인증 요청은 본문을 읽지 않는다**(#115).
+ * ②③④ 가 이 파일이다.
+ *
  * **①② 에서 끊긴 요청은 rate-limit 행을 읽지도 소비하지도 않는다.** 그러지 않으면 남의
- * sessionId 를 아는 사람이 요청을 쏘아 그 사람의 bucket 을 고갈시킬 수 있다. 인증 · 인가는
+ * sessionId 를 아는 사람이 요청을 쏘아 그 사람의 bucket 을 고갈시킬 수 있다. 인가는
  * 이 파일이 먼저 끝내고, 그 뒤에만 `consumeUserTokens` 를 부른다.
  *
  * ## ②③④ 는 한 transaction 이고, 세션 행을 잠근 채로 돈다(#114)
