@@ -16,6 +16,11 @@ name: CI
 on:
   pull_request:
 
+# 같은 PR 에 연속으로 push 하면 이전 run 을 취소한다 — 마지막 commit 의 결과만 의미가 있다.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # GITHUB_TOKEN 은 checkout 에 필요한 읽기 권한만 갖는다.
 permissions:
   contents: read
