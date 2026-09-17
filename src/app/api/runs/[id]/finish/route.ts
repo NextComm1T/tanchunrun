@@ -1,6 +1,8 @@
 import { readAuthEnv } from "@/server/auth/config";
 import { getViewer } from "@/server/auth/session";
+import { declaresTooLarge, readBodyWithLimit } from "@/server/runs/bodyLimit";
 import { finishRun } from "@/server/runs/finish";
+import { FINISH_MAX_BODY_BYTES } from "@/server/runs/policy";
 
 /** Node.js runtime 이 필요하다 — `node:crypto`(tracker token 해시)와 `pg` 를 쓴다. */
 export const runtime = "nodejs";
@@ -59,19 +61,37 @@ export async function POST(
     return fail(403, { error: "forbidden_origin" });
   }
 
+  /*
+    처리 순서는 points route 와 같다(#115) — 선언된 크기 → ① 인증 → 실제 크기(상한까지만
+    읽는다) → 형태 → `finishRun`. **미인증 요청은 본문을 읽지 않고**, finish bucket 은
+    `finishRun` 안에서 인가를 통과한 뒤에만 닿는다.
+
+    전에는 `request.json()` 이 본문을 끝까지 읽었고 상한이 아예 없었다.
+  */
+  if (declaresTooLarge(request.headers.get("content-length"), FINISH_MAX_BODY_BYTES)) {
+    return fail(413, { error: "payload_too_large" });
+  }
+
+  // ① 인증.
+  const viewer = await getViewer();
+  if (!viewer) return fail(401, { error: "unauthenticated" });
+
+  const read = await readBodyWithLimit(request.body, FINISH_MAX_BODY_BYTES);
+  if (!read.ok) {
+    return read.reason === "too_large"
+      ? fail(413, { error: "payload_too_large" })
+      : fail(400, { error: "invalid_body" });
+  }
+
   let parsed: unknown;
   try {
-    parsed = await request.json();
+    parsed = JSON.parse(read.text);
   } catch {
     return fail(400, { error: "invalid_body" });
   }
 
   const body = parseBody(parsed);
   if (!body) return fail(400, { error: "invalid_body" });
-
-  // ① 인증.
-  const viewer = await getViewer();
-  if (!viewer) return fail(401, { error: "unauthenticated" });
 
   const { id: sessionId } = await context.params;
 

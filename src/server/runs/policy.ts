@@ -27,6 +27,14 @@ export const POINTS_MAX_PER_REQUEST = 500;
 export const POINTS_MAX_BODY_BYTES = 262_144;
 
 /**
+ * 종료 요청의 본문 크기 상한(bytes · 4KiB · #115).
+ *
+ * 실제 본문은 tracker token(43자)과 숫자 셋이라 약 120 byte 다. 30 배 넘게 여유를 두어 필드가
+ * 조금 늘어도 정상 요청을 막지 않되, 상한이 없어 종료 경로로 큰 본문을 밀어 넣을 수 있던 틈을 닫는다.
+ */
+export const FINISH_MAX_BODY_BYTES = 4_096;
+
+/**
  * points bucket 의 용량(token).
  *
  * 1초에 하나씩 차므로 **60초치 여유**다. 오프라인에서 쌓인 것을 몰아 보내는 정상 동작을
