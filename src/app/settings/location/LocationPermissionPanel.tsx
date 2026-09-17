@@ -47,9 +47,14 @@ export function LocationPermissionPanel({ children }: { children: ReactNode }) {
       */}
       {state === "ready" && needsPermissionAction(permission) ? (
         needsBrowserSettings(permission) ? (
+          /*
+            오류가 아니라 사용자가 고를 수 있는 상태다 — `ARCHITECTURE.md` 토큰 표의
+            「GPS 약함 · 경고」(warning)를 쓰고 error 계열은 쓰지 않는다. 렌더와 함께
+            나타나는 안내라 assertive 로 끼어들 이유도 없어 `role="status"` 다.
+          */
           <p
-            role="alert"
-            className="mt-1.5 rounded-2xl border-[1.5px] border-error-border bg-error-soft px-5 py-[18px] text-center text-note leading-[1.6] font-bold text-error"
+            role="status"
+            className="mt-1.5 rounded-2xl border-[1.5px] border-warning-border bg-warning-soft px-5 py-[18px] text-center text-note leading-[1.6] font-bold text-warning"
           >
             이미 거부한 상태라 브라우저가 다시 묻지 않습니다. 브라우저 설정의
             사이트 권한에서 위치를 허용해 주세요.
