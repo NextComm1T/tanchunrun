@@ -40,6 +40,13 @@ export function SlideToFinish({ sessionId, onFinish }: SlideToFinishProps) {
   const [dragging, setDragging] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [failed, setFailed] = useState(false);
+  /*
+    끝까지 밀었지만 아직 종료하지 않은 상태. 포인터는 82% 까지 끌어야 끝나는데 키보드만
+    키 하나로 끝나면 오조작 방어가 키보드에서만 사라진다 — 포커스한 채 무심코 누른 Space
+    한 번에 러닝이 끝난다. "끝까지 민다"와 "종료한다"를 두 입력으로 나눠, 확정 키 하나만
+    쓸 수 있는 스위치 기기도 두 번 눌러 끝낼 수 있게 둔다.
+  */
+  const [armed, setArmed] = useState(false);
 
   // 포인터 이동 중에는 최신 값을 즉시 읽어야 해서 state 와 함께 ref 로도 들고 있는다.
   const offsetRef = useRef(0);
@@ -62,6 +69,8 @@ export function SlideToFinish({ sessionId, onFinish }: SlideToFinishProps) {
     setOffset(next);
     // 보조기기는 픽셀이 아니라 이 비율로 진행도를 읽는다.
     setProgress(max > 0 ? Math.round((next / max) * 100) : 0);
+    // 끝에서 물러나면 확정 대기도 함께 풀린다.
+    if (next < max) setArmed(false);
   }
 
   function finish(max: number) {
@@ -177,8 +186,22 @@ export function SlideToFinish({ sessionId, onFinish }: SlideToFinishProps) {
     // 우리가 처리한 키만 막는다 — 스크롤 · 기본 click 으로 새지 않게.
     event.preventDefault();
 
+    /*
+      끝에 닿는 것만으로는 끝나지 않는다. 닿으면 "확정 대기"가 되고 확정 키(Enter · Space ·
+      End)를 **한 번 더** 눌러야 종료다. 방향키를 계속 눌러 끝에 닿아도 마찬가지다.
+      `event.repeat` 를 빼는 이유 — 키를 누르고 있는 동안의 자동 반복은 두 번째 "누름"이
+      아니다. 눌렀다 떼고 다시 눌러야 종료된다.
+    */
+    const isConfirmKey =
+      event.key === "Enter" || event.key === " " || event.key === "End";
+
     if (next >= max) {
-      finish(max);
+      if (armed && isConfirmKey && !event.repeat) {
+        finish(max);
+        return;
+      }
+      moveKnob(max, max);
+      setArmed(true);
       return;
     }
 
@@ -223,7 +246,11 @@ export function SlideToFinish({ sessionId, onFinish }: SlideToFinishProps) {
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={progress}
-          aria-valuetext={`${progress}%`}
+          aria-valuetext={
+            armed
+              ? "끝까지 밀었습니다. 한 번 더 누르면 러닝이 종료됩니다."
+              : `${progress}%`
+          }
           aria-disabled={finishing || undefined}
           onPointerDown={handlePointerDown}
           onKeyDown={handleKeyDown}
@@ -249,9 +276,23 @@ export function SlideToFinish({ sessionId, onFinish }: SlideToFinishProps) {
         </button>
       </div>
 
+      {/*
+        확정 대기 안내. 화면을 보는 키보드 사용자에게도 "한 번 더"가 필요하다는 것이 보여야
+        한다 — 보조기기는 같은 것을 노브의 `aria-valuetext` 로 읽는다.
+      */}
+      {armed && !finishing ? (
+        <p
+          role="status"
+          className="mt-2 text-center text-note font-bold text-subtle"
+        >
+          한 번 더 누르면 러닝이 종료됩니다.
+        </p>
+      ) : null}
+
       {/* 노브만 만져서는 조작 방법을 알 수 없다 — 보조기기에만 읽히는 안내를 붙인다. */}
       <span id={hintId} className="sr-only">
-        오른쪽 방향키로 밀거나 End · Enter 키로 끝까지 밀면 러닝이 종료됩니다.
+        오른쪽 방향키 또는 End 키로 끝까지 민 뒤, Enter · Space 를 한 번 더 누르면 러닝이
+        종료됩니다.
       </span>
     </div>
   );
