@@ -6,6 +6,9 @@
 - 만드는 방법: [ARCHITECTURE.md](./ARCHITECTURE.md)
 - 실행·검증 명령: [PROJECT_COMMANDS.md](./PROJECT_COMMANDS.md)
 - git 흐름(브랜치·커밋·PR·머지): [../CONTRIBUTING.md](../CONTRIBUTING.md)
+- **backend 구현 담당·상태: [BACKEND_ASSIGNMENTS.md](./BACKEND_ASSIGNMENTS.md)** ← 인증 · 세션 · GPS · 저장 · 랭킹 연동은 이 문서가 아니라 저기다
+
+이 문서는 **화면(UI/mock) 구현 이력·담당 문서**다.
 
 **구현 기준은 기획 문서가 아니라 캡처된 디자인이다.** 루트 `탄천런.dc.html` 을 브라우저로 열면 실제 화면을 볼 수 있고, 아래 「디자인 줄」은 그 파일에서 해당 화면의 마크업 위치다.
 
@@ -33,12 +36,12 @@ npm run dev
 | 가입하기(약관 동의) | 95–135 | `/signup/consent` | A | #37 | | ✅ 완료 |
 | 개인정보 수집·이용 동의 상세 | 136–167 | `/signup/consent/detail` | A | #38 | | ✅ 완료 |
 | 프로필 설정(닉네임) | 168–198 | `/signup/nickname` | A | #39 | | ✅ 완료 |
-| 러닝 진행 | 207–297 | `/running` | B | #40 | | |
-| 결과 | 298–374 | `/result/[sessionId]` | B | #41 | | |
-| 홈 — 달리기 탭 (+3초 카운트다운) | 684–771, 199–206 | `/home` | C | #42 | | |
-| 홈 — 랭킹 탭 | 772–828 | `/ranking` | C | #43 | | |
-| 홈 — 기록 탭 | 829–920 | `/records` | C | #44 | | |
-| 기록 상세 | 628–679 | `/records/[sessionId]` | C | #45 | | |
+| 러닝 진행 | 207–297 | `/running` | B | #40 | | ✅ UI/mock develop 통합 · backend 는 BACKEND_ASSIGNMENTS |
+| 결과 | 298–374 | `/result/[sessionId]` | B | #41 | | ✅ UI/mock develop 통합 · backend 는 BACKEND_ASSIGNMENTS |
+| 홈 — 달리기 탭 (+3초 카운트다운) | 684–771, 199–206 | `/home` | C | #42 | | ✅ UI/mock develop 통합 · backend 는 BACKEND_ASSIGNMENTS |
+| 홈 — 랭킹 탭 | 772–828 | `/ranking` | C | #43 | | ✅ UI/mock develop 통합 · backend 는 BACKEND_ASSIGNMENTS |
+| 홈 — 기록 탭 | 829–920 | `/records` | C | #44 | | ✅ UI/mock develop 통합 · backend 는 BACKEND_ASSIGNMENTS |
+| 기록 상세 | 628–679 | `/records/[sessionId]` | C | #45 | | ✅ UI/mock develop 통합 · backend 는 BACKEND_ASSIGNMENTS |
 | 설정 (+로그아웃·탈퇴 모달) | 375–437, 938–965 | `/settings` | D | #46 | | ✅ 완료 |
 | 위치정보 | 438–476 | `/settings/location` | D | #47 | | ✅ 완료 |
 | 개인정보처리방침 | 477–530 | `/privacy-policy` | D | #48 | | ✅ 완료 |
@@ -52,11 +55,11 @@ D 가 개수는 많지만 위치정보·개인정보처리방침·동의 보기�
 
 ### 시작 순서
 
-- **A · D 는 완료됐다.**
-- **공용 선행 #33(지도) · #34(탭바)는 머지됐다.** B · C 화면은 `develop` 에서 바로 시작할 수 있다.
-- 선행은 이슈마다 다르다 — 지도를 쓰는 #40 · #41 · #42 · #45 는 #33, 탭바를 쓰는 #42 · #43 · #44 는 #34. 랭킹(#43) · 기록 목록(#44)은 지도를 쓰지 않는다.
-- 이슈끼리 서로의 route 로 이동한다. 확인이 쉬운 추천 순서: #41 · #43 · #44 → #40 · #45 → #42(카운트다운 뒤 `/running` 으로 가므로 마지막).
-- 이 문서와 이슈 본문이 어긋나면 **이슈 본문(2026-09-14 결정 이력)이 최신**이다.
+- **A~D 화면 UI/mock 과 공용 선행 #33(지도) · #34(탭바)는 모두 `develop` 에 통합됐다.** 이 절은 끝난 작업의 이력이다.
+- 당시 선행은 이슈마다 달랐다 — 지도를 쓰는 #40 · #41 · #42 · #45 는 #33, 탭바를 쓰는 #42 · #43 · #44 는 #34. 추천 순서는 #41 · #43 · #44 → #40 · #45 → #42 였다.
+- 실제 backend 연동(인증 · 세션 · GPS · 저장 · 랭킹)은 화면 이슈를 재사용하지 않고 **backend track 이슈**로 진행한다 — [BACKEND_ASSIGNMENTS.md](./BACKEND_ASSIGNMENTS.md).
+- 화면 이슈(#37~#51)의 AC 와 제외 범위는 당시 UI/mock 구현 범위의 기록으로 유지한다.
+- 이 문서와 이슈 본문이 어긋나면 **이슈 본문이 최신**이다.
 
 ## 충돌 방지
 
@@ -77,9 +80,9 @@ D 가 개수는 많지만 위치정보·개인정보처리방침·동의 보기�
 
 ### 인증(OAuth)은 화면 작업이 아니다
 
-카카오·구글 연동은 `layout.tsx` · `page.tsx` · middleware 를 건드리는 **공유 인프라**다. 화면 브랜치에 섞으면 전원과 충돌한다. 화면이 어느 정도 올라온 뒤 한 사람이 별도 트랙으로 맡는다.
+카카오·구글 연동은 루트 `page.tsx` 등 공유 인프라를 건드린다. 화면 브랜치에 섞으면 전원과 충돌한다. **backend track 의 #79(DB·인증 기반)에서 구현하고, 루트 인증 분기는 #80 이 맡는다** — [BACKEND_ASSIGNMENTS.md](./BACKEND_ASSIGNMENTS.md).
 
-지금은 로그인 버튼을 눌러도 아무 일도 일어나지 않는 것이 **정상**이다.
+로그인 버튼을 눌러도 아무 일도 일어나지 않는 것은 **#79 가 `develop` 에 merge 되기 전까지만** 정상이다.
 
 ### `modify/` 는 화면별로 쓴다
 

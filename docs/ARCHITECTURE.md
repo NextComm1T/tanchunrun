@@ -7,9 +7,13 @@
 
 ## 기술 스택
 
-Next.js 16 (App Router · Turbopack) · React 19 · TypeScript · Tailwind CSS v4.
+화면 — Next.js 16 (App Router · Turbopack) · React 19 · TypeScript · Tailwind CSS v4.
 
-라이브러리는 아직 이 넷뿐이다. **추가하려면 먼저 팀에 말한다** — `package.json` 은 전원이 공유하는 파일이다.
+서버 — PostgreSQL 17 · `drizzle-orm`(`pg` driver) · `drizzle-kit` · `openid-client`(OIDC).
+
+**추가하려면 먼저 팀에 말한다** — `package.json` 은 전원이 공유하는 파일이다. 스택은 #78 의 결정
+ledger(D2 · D3-A)가 정본이고, 버전은 `~` 로 patch line 에 고정돼 있다. minor · major 를 올리는 것도
+결정을 바꾸는 일이라 임의로 하지 않는다.
 
 ## 폴더 구조
 
@@ -19,21 +23,61 @@ src/
 │  ├─ layout.tsx           모든 화면 공통. 화면별 UI 를 넣지 않는다
 │  ├─ globals.css          디자인 토큰. 건드리기 전에 팀에 말한다
 │  ├─ page.tsx             /  → 첫 화면 분기 자리
-│  └─ login/               /login
-│     ├─ page.tsx
-│     ├─ LoginHero.tsx         ← 이 화면에서만 쓰는 조각은 같은 폴더에
-│     └─ SocialLoginButtons.tsx
-└─ components/shared/      여러 화면이 쓰는 것만
-   ├─ AppShell.tsx
-   ├─ Header.tsx
-   ├─ BackButton.tsx
-   ├─ BottomNav.tsx        홈 3개 탭 하단 탭바 (#34)
-   └─ TancheonMap.tsx      탄천 지도 (#33)
+│  ├─ login/               /login
+│  │  ├─ page.tsx
+│  │  ├─ LoginHero.tsx         ← 이 화면에서만 쓰는 조각은 같은 폴더에
+│  │  └─ SocialLoginButtons.tsx
+│  └─ api/auth/            OAuth route 4개 (#79). 화면이 아니다
+│     ├─ google/start/route.ts · google/callback/route.ts
+│     └─ kakao/start/route.ts  · kakao/callback/route.ts
+├─ components/shared/      여러 화면이 쓰는 것만
+│  ├─ AppShell.tsx
+│  ├─ Header.tsx
+│  ├─ BackButton.tsx
+│  ├─ BottomNav.tsx        홈 3개 탭 하단 탭바 (#34)
+│  └─ NaverTancheonMap.tsx 실제 위경도 지도 (#84)
+├─ client/                 브라우저에서만 도는 공용 모듈
+│  ├─ naverMaps.ts         NAVER Maps SDK 로더 (#84)
+│  └─ tracker.ts           tracker record IndexedDB 저장 (#81)
+├─ domain/                 순수 계산 (#82)
+│  └─ measure/             거리 · Zone · 페이스
+└─ server/                 서버에서만 도는 코드
+   ├─ db/                  schema.ts · client.ts (#79)
+   ├─ auth/                config · providers · session · identity · handlers · actions (#79)
+   ├─ account/             동의 · 닉네임 (#80)
+   └─ runs/                러닝 세션 시작 · 복원 (#81)
 ```
 
 **규칙 하나로 줄이면**: 그 화면에서만 쓰면 화면 폴더 안에, 두 화면 이상이 쓰면 `components/shared/`.
 
 한 화면에서만 쓰는 조각을 `shared/` 에 올리지 않는다. 지금은 정리돼 보여도 나중에 아무도 못 지운다.
+
+## `src/server` · `src/domain` 경계 (D12)
+
+| 폴더 | 무엇 | 규칙 |
+| --- | --- | --- |
+| `src/domain` | 프레임워크와 무관한 순수 TS. 계산 · 규칙 | React · Next · DB · env 를 import 하지 않는다. `npm test` 대상은 여기뿐이다 |
+| `src/server` | 서버에서만 도는 코드. DB · 인증 · secret | 브라우저로 새어 나가면 안 된다 |
+| `src/client` | 브라우저에서만 도는 공용 모듈. IndexedDB · 외부 SDK | 여러 화면이 쓰는 것만. 한 화면 것은 화면 폴더에 |
+
+**import 방향은 한쪽뿐이다.**
+
+```
+server  →  domain     허용
+domain  →  server     금지
+```
+
+`domain` 이 `server` 를 부르기 시작하면 순수 TS 라는 전제가 깨지고 테스트할 수 없게 된다.
+
+`src/server` 아래 모듈은 **예외 없이 `import "server-only";` 로 시작한다.** 클라이언트 컴포넌트가
+실수로 가져다 쓰면 빌드가 거기서 깨진다. 유일한 예외는 `"use server"` 가 붙은 server action
+파일인데, 그건 Next 가 이미 클라이언트 번들에서 빼내기 때문이다.
+
+`server-only` 는 **설치하지 않는다.** Next 가 내부적으로 처리하므로 package 가 필요 없다.
+
+`drizzle-kit` 은 Next 밖에서 도는 CLI 라 그 처리를 모른다. 그래서 `schema.ts` 를 읽다가
+`Cannot find module 'server-only'` 로 죽는데, `drizzle.config.ts` 가 **그 설정 파일 안에서만**
+resolver 를 감싸 해결해 둔다. Next 는 이 설정 파일을 읽지 않으므로 앱 쪽 처리는 그대로다.
 
 ## 공용 컴포넌트
 
@@ -85,36 +129,44 @@ import { BottomNav } from "@/components/shared/BottomNav";
 - 설정은 탭이 아니다 — 각 탭 상단의 기어로 들어간다(`modify/2026-09-14.md` 1번).
 - 달리기 탭이 `/` 가 아니라 `/home` 인 이유는 `modify/2026-09-15-bottomnav.md`.
 
-### `TancheonMap`
+### `NaverTancheonMap` (#84)
 
-러닝 진행(#40) · 결과(#41) · 기록 상세(#45) · 홈 달리기 탭(#42)이 쓰는 탄천 지도(#33). 좌표계는 원본 SVG 그대로 `MAP_WIDTH`×`MAP_HEIGHT`(340×220)이고, 경로 좌표도 이 좌표계의 값이다.
+실제 위경도를 그리는 **유일한 공용 지도**. 러닝 진행 · 결과 · 기록 상세 · 홈 달리기 탭 네 화면이 함께 쓴다.
+
+일러스트 SVG 지도(`TancheonMap`)는 #86 에서 마지막 consumer(기록 상세)를 옮기고 **삭제했다**. SVG 좌표계(`MapPoint` · `RouteSegment` · `MAP_WIDTH`/`MAP_HEIGHT`)도 함께 사라졌다 — 좌표는 이제 WGS84 하나뿐이다.
 
 ```tsx
-import { TancheonMap, type RouteSegment } from "@/components/shared/TancheonMap";
-
-// 러닝 진행 — 현재 위치 마커 · 확대
-<TancheonMap route={segments} endMarker={gpsLost ? "gps-lost" : "running"} viewBox={zoomViewBox} />
-
-// 결과 · 기록 상세 — 끝난 경로
-<TancheonMap route={segments} />
+import { NaverTancheonMap, type NaverTancheonMapHandle } from "@/components/shared/NaverTancheonMap";
+import { TANCHEON_ZONE } from "@/domain/measure";
 
 // 홈 달리기 탭 — 경로 없이 내 위치만
-<TancheonMap userPin={{ x: 155, y: 112 }} viewBox={zoomViewBox} />
+<NaverTancheonMap ref={mapRef} marker={{ lat, lng, kind: "current" }} zone={TANCHEON_ZONE} />
+
+// 러닝 진행 — 지금까지의 경로 + 현재 위치
+<NaverTancheonMap route={routePoints} marker={{ lat, lng, kind: gpsLost ? "gps-lost" : "current" }} zone={TANCHEON_ZONE} />
+
+// 결과 · 기록 상세 — 끝난 경로
+<NaverTancheonMap route={routePoints} marker={{ lat, lng, kind: "finished", inZone }} zone={TANCHEON_ZONE} />
 ```
 
 | props | 뜻 |
 | --- | --- |
-| `route?: RouteSegment[]` | 연속 구간 배열(`{ x, y, inZone }[][]`). **구간과 구간 사이는 선을 잇지 않는다** — GPS 가 끊긴 자리다(P2) |
-| `endMarker?: "finished" \| "running" \| "gps-lost"` | 경로 끝점 표시. 기본 `finished`(끝점이 Zone 안이면 파랑, 밖이면 회색) · `running`(현재 위치) · `gps-lost`(유실 색 + "위치 확인 중…") |
-| `userPin?: { x, y }` | 경로 없이 내 위치만 찍는다(홈). `route` 와 함께 넘기면 마커가 겹친다 |
-| `viewBox?: string` | 기본 `0 0 340 220`. 확대한 값은 화면이 계산해서 넘긴다 |
+| `route?: readonly RoutePoint[]` | `measure()`(#82)가 낸 경로. `generation → rawSeq → ordinal` 정렬 전제. **generation · segment 가 바뀌는 자리는 선을 잇지 않는다**(P2) |
+| `marker?: MapMarker \| null` | `{ lat, lng, kind, inZone? }`. `kind` 는 `current`(지금 위치 — 홈 · 러닝 중 같은 글리프) · `gps-lost` · `finished`. 색이 `inZone` 으로 갈리는 것은 `finished` 뿐이다 |
+| `zone?: Ring` | 탄천 Ranking Zone 폴리곤. **컴포넌트가 직접 import 하지 않고 화면이 넘긴다** — 안 쓰는 화면이 185정점을 번들에 끌고 오지 않도록 |
 | `label?: string` | 스크린리더가 읽을 이름. 기본 "탄천 지도" |
+| `onStatusChange?` | `loading` · `ready` · `credential` · `network` |
+| `onZoomChange?` | `{ zoom, canZoomIn, canZoomOut }`. 화면의 +/− 버튼 disabled 판정용 |
+| `ref` | `zoomIn()` · `zoomOut()` · `recenter()`. 버튼은 화면이 그리고 이걸로 지도를 움직인다 |
 
-- `inZone` 이 바뀌는 점은 앞뒤 선이 함께 가져서 경계에서 색이 갈린다(R11). 경계점을 계산해 넣는 것은 호출하는 쪽(mock 데이터) 몫이다.
-- 속도 초과 구간(P9)을 위한 props 는 없다 — 일반 구간과 같은 스타일로 그린다.
-- **그리지 않는 것** — 확대 · 축소 · 재중심 버튼, 범례, GPS 경고 카드, GPS 확인 중 딤. 디자인에서 지도 바깥 요소라 각 화면이 지도 위에 그린다. 확대 값 · 단계 계산도 화면 몫이다.
-- **크기는 부모가 정한다** — `size-full` 이라 부모 상자에 높이가 있어야 한다. `preserveAspectRatio="xMidYMid slice"` 라 상자 비율에 맞춰 잘린다.
-- `"use client"` 가 없는 환경 중립 컴포넌트다. 클라이언트 화면 안에서 쓰면 클라이언트로 돈다.
+- **표시 전용이다.** 거리 · Zone 판정 · 경계점 · 속도 제외는 전부 `src/domain/measure`(#82)가 한다. 이 컴포넌트에 계산을 넣지 않는다.
+- `inZone` 이 바뀌는 점은 앞뒤 선이 함께 가져서 경계에서 색이 갈린다(R11). 경계점은 `measure()` 가 이미 만들어 준다.
+- 속도 초과 구간(P9)은 **일반 구간과 같은 스타일**이다. `excludedFromPrevReason` 을 선 스타일에 쓰지 않는다.
+- **camera follow 는 내부 동작이다**(D10) — 기본 on · 위치가 바뀌면 최대 2초에 1회 `panTo` · 사용자 pan/zoom 제스처에 off · `recenter()` 로 다시 on. **props 를 늘리지 않는다.**
+- **그리지 않는 것** — 확대 · 축소 · 재중심 버튼, 범례, GPS 안내 카드 · 딤. 디자인에서 지도 바깥 요소라 각 화면이 지도 위에 그린다.
+- **크기는 부모가 정한다** — `size-full` 이라 부모 상자에 높이가 있어야 한다.
+- 실패하면 **지도 영역만** 안내로 바뀐다. SDK 를 못 받으면(`network`) 「다시 시도」가 있고, key · 서비스 URL 문제(`credential`)는 사용자가 할 수 있는 일이 없어 안내만 한다. 어느 쪽이든 그 화면의 나머지 기능은 계속 동작해야 한다.
+- SDK 로더는 `src/client/naverMaps.ts` 다. `layout.tsx` 에 `<script>` 를 넣지 않는다. env 는 `NEXT_PUBLIC_NAVER_MAP_KEY_ID`(#78 D3-B) 하나이고 **값을 저장소에 두지 않는다.**
 
 ## 디자인 토큰
 
@@ -141,7 +193,9 @@ Tailwind 유틸로 바로 쓴다 — `bg-surface` · `text-muted` · `rounded-xl
 | 오류 | `text-error` `bg-error-soft` `border-error-border` | `#C4483C` … |
 | GPS 약함 · 경고 | `text-warning` `bg-warning-soft` | `#9B7419` … |
 | 랭킹 1·2·3위 | `text-rank-gold` `-silver` `-bronze` | — |
-| 지도 | `bg-map-base` `bg-map-water` `bg-map-park` … | — |
+| 지도 | `bg-map-base` · `stroke-route-out` · `fill-gps-lost` | 타일 바탕 · Zone 밖 경로 · 신호 유실 마커 |
+
+**일러스트 지도 전용이던 토큰**(`map-block` · `map-road` · `map-park` · `map-water` · `map-water-edge` · `map-label`)은 #86 의 legacy 삭제로 **쓰는 곳이 0** 이 됐다. `globals.css` 는 전원이 공유하는 파일이라 이 Issue 에서 지우지 않았다 — 정리는 팀에 말한 뒤 따로 한다.
 
 전체 목록은 [globals.css](../src/app/globals.css) 에 있고, 값마다 디자인 원본 줄 번호가 주석으로 달려 있다.
 
@@ -213,8 +267,37 @@ import heroOtter from "@assets/otter-hero-wide-v2.png";
 
 예시: [modify/2026-09-14.md](../modify/2026-09-14.md)
 
+## 인증 (#79)
+
+카카오 · 구글 OIDC 로그인이 붙어 있다. 화면을 만들 때 알아야 할 것만 적는다.
+
+**현재 사용자를 알고 싶을 때** — `getViewer()` 하나만 쓴다.
+
+```tsx
+import { getViewer } from "@/server/auth/session";
+
+const viewer = await getViewer();   // { userId, accountState, nickname, provider } | null
+```
+
+- 서버에서만 부른다. **client 가 보낸 userId 를 믿지 않는다** — 서버 함수는 항상 세션에서 얻는다.
+- `null` 이면 로그아웃이다. `accountState` 는 `signing_up`(닉네임 미설정) 또는 `active`.
+- `hasActiveRun` 은 아직 없다. #81 이 기존 필드를 바꾸지 않고 **덧붙인다**.
+
+**로그아웃** — `signOut()`(server action)이 현재 기기 세션 행을 지우고 쿠키를 지운다.
+`{ ok: true } | { ok: false, error: "failed" }` 를 돌려주므로, **`ok` 일 때만 화면을 옮긴다.**
+실패했는데 로그인 화면으로 보내면 세션이 살아 있는 채로 로그아웃한 것처럼 보인다.
+
+**세션 수명** — 발급 후 **고정 30일**이다. 써도 연장되지 않고(rolling 없음) 30일이 지나면 재로그인이다.
+기획 문서의 "로그아웃 전까지 유지" 와 다른 지점이라 `modify/2026-09-16-auth.md` 에 적어 뒀다.
+
+**카카오와 구글은 이어지지 않는다** — 같은 사람이어도 UID 가 둘이다(P11). email 로 계정을 잇는
+코드를 두지 않는다. 애초에 **이메일 · 프로필 · OAuth token 을 저장하지 않는다**(SP3).
+
+실행에 필요한 것(로컬 PostgreSQL · `.env.local` · migration)은 [PROJECT_COMMANDS.md](./PROJECT_COMMANDS.md).
+
 ## 아직 없는 것
 
-- **인증** — 카카오·구글 OAuth 미연동. 로그인 버튼은 눌러도 아무 일도 일어나지 않는다. `layout.tsx` · `page.tsx` · middleware 를 건드리는 **공유 인프라**라 화면 브랜치에 섞으면 전원과 충돌한다. 별도 트랙으로 한 사람이 맡는다.
-- **API · 데이터** — 서버가 없다. 화면은 mock 데이터로 만든다.
-- **테스트 러너** — `npm test` 없음.
+- **첫 화면 분기 · 가입 흐름** — `/` 는 여전히 `/login` 으로만 보낸다. 로그인 상태 · 가입 중 여부에 따른 분기와 동의 · 닉네임 저장은 #80 이 한다. `layout.tsx` · 루트 `page.tsx` 는 **공유 인프라**라 화면 브랜치에서 건드리지 않는다.
+- **API · 데이터** — 인증 밖의 서버는 아직 없다. 러닝 · 랭킹 · 기록 화면은 mock 데이터로 만든다.
+- **화면 테스트 러너** — `npm test`(Vitest)는 `src/domain` 만 돈다(#82). `src/app` 의 검증은 여전히 lint · build · 브라우저 확인뿐이다.
+- **실지도 확인** — `NEXT_PUBLIC_NAVER_MAP_KEY_ID` 와 NAVER Console 등록이 끝나야 지도가 실제로 뜬다(#78 D3-B). 그전에는 `credential` 안내가 지도 자리에 보이는 것이 정상이다.

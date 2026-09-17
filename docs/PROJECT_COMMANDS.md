@@ -11,9 +11,17 @@ npm install
 npm run dev
 ```
 
-→ http://localhost:3000 (3000 이 쓰이는 중이면 Next 가 3001 등으로 올리고 터미널에 주소를 찍는다)
+→ http://localhost:3000
 
-`/` 로 들어가면 `/login` 으로 보낸다. 아직 인증이 없어 항상 로그아웃으로 보기 때문이다.
+**`.env.local` 이 없으면 여기까지 오지 못한다.** 서버 전용 env 6개 중 하나라도 비어 있으면
+`npm run dev` 는 시작 시점에 종료된다(`npm run start` 는 뜨지만 모든 요청이 500 이 된다).
+화면만 볼 사람도 `.env.local` 이 필요하다 — 아래 「2. `.env.local`」 을 먼저 본다.
+
+**3000 이어야 한다.** 3000 이 쓰이는 중이면 Next 가 3001 등으로 올리는데, 그러면 `APP_ORIGIN` 과
+provider 에 등록된 callback 주소가 어긋나서 로그인이 실패한다. 3000 을 쓰는 프로세스를 먼저 끄고
+다시 띄운다. (화면만 보고 로그인을 안 쓸 거라면 3001 이어도 상관없다 — 그래도 `.env.local` 은 있어야 뜬다.)
+
+`/` 로 들어가면 `/login` 으로 보낸다. 로그인 상태에 따른 분기는 아직 붙지 않았다(#80).
 
 ## 명령
 
@@ -24,21 +32,94 @@ npm run dev
 | `npm run build` | 프로덕션 빌드 | **TypeScript 타입 검사 포함**. 타입 오류는 여기서 잡힌다 |
 | `npm run start` | 빌드 결과 실행 | `build` 를 먼저 돌려야 한다 |
 | `npm run lint` | ESLint (`eslint-config-next`) | 출력이 없으면 위반 0 |
+| `npm test` | Vitest (`vitest run`) | **순수 함수만** 돈다. 화면 · DB · 네트워크는 대상이 아니다 |
+| `npm run db:generate` | schema 변경 → migration SQL 생성 | DB 에 접속하지 않는다 |
+| `npm run db:migrate` | migration 을 DB 에 적용 | **direct(unpooled) 접속**이 필요하다 — 아래 「스키마 적용」 |
+
+## DB — 로그인을 쓰려면 필요하다
+
+로컬 PostgreSQL(1) 과 스키마 적용(3) 은 **로그인 · 로그아웃을 쓸 때만** 필요하다. 화면만 볼 거라면
+건너뛰어도 된다.
+
+**`.env.local`(2) 만은 예외로, 화면만 보더라도 있어야 한다.** 없으면 `npm run dev` 가 시작 시점에
+종료된다 — env 누락을 서버 시작 시 걸러 내기 때문이다(#79).
+
+### 1. 로컬 PostgreSQL 17 (개발자마다 각자 띄운다)
+
+공유 cloud dev DB 를 쓰지 않는다. compose 파일은 두지 않는다.
+
+```bash
+docker run --name tancheon-pg -e POSTGRES_PASSWORD=<직접 정한다> \
+  -e POSTGRES_DB=tancheonrun -p 5432:5432 -d postgres:17
+```
+
+컨테이너는 한 번만 만들면 된다. 다음부터는 `docker start tancheon-pg` · `docker stop tancheon-pg`.
+
+### 2. `.env.local`
+
+`.env.example` 을 복사해 값을 채운다. **값은 담당자에게 승인된 비밀 공유 수단으로 받는다.**
+
+```bash
+cp .env.example .env.local
+```
+
+- `.env.local` 은 `.gitignore` 로 무시된다. `.env.example` 만 커밋된다(이름만, 값 없음).
+- **값을 터미널에 찍거나 Issue · PR · 댓글 · 채팅에 붙이지 않는다.** 확인은 "설정됨 / 미설정" 까지만 한다.
+- `APP_ORIGIN` 은 로컬에서 `http://localhost:3000` 고정이다.
+- 어떤 값을 누가 주는지는 #78 D3-A 를 본다.
+- **빈 값(`KEY=`)은 미설정과 같다.** `cp` 만 하고 두면 서버는 여전히 시작하지 않는다.
+- **화면만 볼 거라면** 6개를 전부 채우되 `APP_ORIGIN` 만 `http://localhost:3000` 이면 되고 나머지
+  5개는 자리표시자여도 화면은 뜬다. 로그인만 안 된다. 실제 값이 필요한 사람은 위를 따른다.
+
+### 3. 스키마 적용
+
+```bash
+npm run db:migrate
+```
+
+빈 DB 에 한 번 돌리면 스키마가 생기고, 다시 돌려도 바뀌는 것이 없다. 이력은 `drizzle.__drizzle_migrations` 에 남는다.
+
+**migration 은 direct(unpooled) 접속으로만 돈다**(#78 D3-A — 앱 runtime 은 pooled, migration 은 direct).
+
+- 로컬 Docker 는 pooler 가 없으므로 `DATABASE_URL` 하나면 된다. 신경 쓸 것이 없다.
+- **Neon 은 다르다.** Vercel 통합이 `DATABASE_URL`(pooled · 호스트에 `-pooler`)과
+  `DATABASE_URL_UNPOOLED`(direct) 둘을 함께 준다. `drizzle.config.ts` 가 **`DATABASE_URL_UNPOOLED` 를
+  먼저 집고**, 없으면 `DATABASE_URL` 로 넘어간다.
+- pooled 밖에 없으면 **오류로 멈춘다.** pooled(PgBouncer transaction mode)는 세션 수준 기능을
+  지원하지 않아 DDL 이 실패하거나 조용히 이상하게 돌 수 있는데, migration 이 반쯤 적용된 상태가
+  실패보다 훨씬 비싸다. 멈추면 `DATABASE_URL_UNPOOLED` 를 채운다.
+
+### migration 정책
+
+- schema(`src/server/db/schema.ts`)를 고친 사람이 `npm run db:generate` 로 SQL 을 만들고 **그대로 커밋**한다.
+- **생성된 SQL 을 손으로 고치지 않는다. forward-only** — 이미 적용된 migration 을 되돌려 쓰지 않고 새 migration 을 쌓는다.
+- **앱 실행 · 서버 시작 · 요청 처리 · `npm run build` 는 migration 을 돌리지 않는다.** 적용은 `npm run db:migrate` 뿐이다.
+- local 은 각자, integration · production 은 담당 역할이 배포 흐름에서 1회 적용한다(#78 D3-A).
 
 ## PR 전에 반드시
 
 ```bash
 npm run lint
 npm run build
+npm test      # src/domain 을 건드렸으면
 ```
 
-둘 다 통과해야 한다. `build` 가 타입 검사를 겸하므로 별도 `typecheck` 명령은 없다.
+lint · build 는 통과해야 한다. `build` 가 타입 검사를 겸하므로 별도 `typecheck` 명령은 없다.
 
-## 테스트 러너는 없다
+## `npm test` 가 덮는 범위
 
-`npm test` 는 **존재하지 않는다.** 자동화 테스트가 아직 없어서, 검증은 lint · build · 브라우저 확인 세 가지뿐이다.
+`npm test` 는 **`src/**/*.test.ts`** 를 실행한다(`vitest.config.mts`). 대상은 경로가 아니라 성격으로
+정해진다 — 거리 · Zone · 페이스 계산(`src/domain/measure`), 업로드 ACK 규칙(`src/server/runs/ack.ts`)
+처럼 **화면 · DB · 네트워크 없이 값만으로 판정할 수 있는 순수 함수**다.
 
-PR 에 "테스트 완료"라고 적지 않는다. 실제로 한 것만 적는다 (`CONTRIBUTING.md` 8. 금지).
+`import "server-only"` 가 붙은 모듈은 Next 밖에서 import 하는 순간 던지므로 테스트할 수 없다.
+검증하고 싶은 규칙이 있으면 그 규칙만 순수 모듈로 떼어 낸다(`ack.ts` 가 그 예다).
+
+**화면에는 여전히 테스트 러너가 없다.** `src/app` 의 검증은 lint · build · 브라우저 확인 세 가지뿐이고,
+DB 를 실제로 때리는 경로(route handler · migration 적용)도 자동 테스트가 아니라 수동 확인 대상이다.
+
+PR 에 "테스트 완료"라고 적지 않는다. 실제로 한 것만 적는다 (`CONTRIBUTING.md` 8. 금지) —
+`npm test` 를 돌렸으면 그 결과를, 브라우저로 본 것은 브라우저로 봤다고 적는다.
 
 ## 확인할 때 자주 쓰는 것
 

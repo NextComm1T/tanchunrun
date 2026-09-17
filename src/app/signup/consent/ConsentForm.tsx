@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useSyncExternalStore, type ReactNode } from "react";
+import {
+  useState,
+  useSyncExternalStore,
+  useTransition,
+  type ReactNode,
+} from "react";
+
+import { acceptConsent } from "@/server/account/actions";
+
+import { PRIVACY_CONSENT_VERSION } from "./consentSections";
 
 type ConsentFormProps = {
   /** 동의 카드와 계속하기 버튼 사이에 들어가는 정적 블록(개인정보처리방침 카드). */
@@ -77,16 +86,38 @@ export function ConsentForm({ children }: ConsentFormProps) {
   */
   const agreed = useSyncExternalStore(subscribe, readAgreed, () => false);
 
+  const [failed, setFailed] = useState(false);
+  const [pending, startTransition] = useTransition();
+
   function handleToggle() {
     writeAgreed(!agreed);
   }
 
   /**
-   * TODO(F8 · F10): 서버가 붙으면 여기서 동의 결과를 저장한 뒤 닉네임 설정으로
-   * 넘긴다. 지금은 저장할 곳이 없어 이동만 한다 — 가짜 성공을 만들지 않는다.
+   * 동의를 **서버에 저장한 뒤에만** 닉네임 설정으로 넘어간다(#80).
+   *
+   * 저장에 실패했는데 다음 단계로 보내면 동의 없이 가입이 끝난다 — 가짜 성공이다.
+   * 그래서 `ok` 일 때만 이동하고, 실패하면 이 화면에 머무르며 오류를 보인다.
+   *
+   * 버전을 함께 보내지만 서버는 그 값을 저장하지 않고 **자기가 아는 현재 버전과 같은지만**
+   * 본다. 오래 열어 둔 탭이 옛 문구에 동의하는 것을 막는다.
+   *
+   * 재호출은 서버가 idempotent 하게 처리하므로(같은 버전이면 기존 행 유지) 두 번 눌러도
+   * 동의 시각이 밀리지 않는다.
    */
   function handleContinue() {
-    router.push("/signup/nickname");
+    setFailed(false);
+
+    startTransition(async () => {
+      const result = await acceptConsent(PRIVACY_CONSENT_VERSION);
+
+      if (!result.ok) {
+        setFailed(true);
+        return;
+      }
+
+      router.push("/signup/nickname");
+    });
   }
 
   return (
@@ -173,13 +204,26 @@ export function ConsentForm({ children }: ConsentFormProps) {
       {children}
 
       <div className="mt-auto pt-6 pb-2.5">
+        {/*
+          저장 실패 안내. 디자인에 없는 요소지만 #80 이 「동의 저장 실패 → 진행하지 않고
+          오류 안내」를 요구한다. 로그인 · 로그아웃 실패 안내와 같은 토큰을 쓴다.
+        */}
+        {failed ? (
+          <p
+            role="alert"
+            className="mb-3 rounded-md border-[1.5px] border-error-border bg-error-soft px-4 py-3 text-sm font-bold text-error"
+          >
+            동의를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.
+          </p>
+        ) : null}
+
         <button
           type="button"
-          disabled={!agreed}
+          disabled={!agreed || pending}
           onClick={handleContinue}
           className={`h-[60px] w-full cursor-pointer rounded-xl text-[19px] font-extrabold disabled:cursor-not-allowed ${
             agreed
-              ? "bg-primary text-on-primary"
+              ? "bg-primary text-on-primary disabled:opacity-60"
               : "bg-disabled-surface text-disabled"
           }`}
         >

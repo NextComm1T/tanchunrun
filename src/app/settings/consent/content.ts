@@ -1,26 +1,19 @@
 /**
- * 개인정보 수집·이용 동의(보기) 화면이 보여 주는 값들.
- *
- * 서버도 인증도 없어서(`docs/ARCHITECTURE.md:171`) 동의 기록 조회는 결과 자리만
- * 남긴 mock 이다. 가짜 성공·실패로 흉내내지 않는다 — 값만 둔다.
+ * 개인정보 수집·이용 동의(보기) 화면의 값들.
  *
  * 고지 문구는 전부 디자인 `탄천런.dc.html` L544-561 의 것을 그대로 옮겼다.
- * 이 화면은 **읽기 전용**이라 여기서 동의를 철회하거나 바꿀 수 없다(이슈 #49 제외 범위).
+ * 이 화면은 **읽기 전용**이라 여기서 동의를 철회하거나 바꿀 수 없다(#88 제외 범위) —
+ * 철회에 해당하는 행동은 회원탈퇴(`/settings/withdraw`)다.
  */
 
 /**
- * 동의 기록 조회 결과.
+ * 동의 기록 조회 결과(#88).
  *
- * 디자인에는 「동의 완료」 하나뿐이다(L545) — 가입 단계에서 필수 동의를 받아야
- * 서비스에 들어올 수 있으므로(`docs/04-features.md:23` F8 흐름) 정상 상태는 이 하나다.
- * `unknown` 은 이 화면의 **빈 상태**로 쓰려고 더한 값이다 — 계정에 연결된 동의 기록이
- * 조회되지 않는 경우이며, 아래 고지 문구는 늘 옳으므로 이 화면에서 데이터가
- * 빌 수 있는 곳은 여기뿐이다(`docs/07-screens.md:14`).
+ * 디자인에는 「동의 완료」 하나뿐이다(L545) — 가입 단계에서 필수 동의를 받아야 서비스에
+ * 들어올 수 있으므로(`docs/04-features.md:23` F8 흐름) 정상 상태는 이 하나다.
+ * `unknown` 은 **현재 버전 동의 행이 없는** 경우다(D5 — 버전까지 같아야 동의로 본다).
  */
 export type ConsentStatus = "agreed" | "unknown";
-
-/** 동의 기록 조회 자체의 진행 상태. 조회 결과(`ConsentStatus`)와 구분한다. */
-export type ConsentQueryState = "loading" | "error" | "ready";
 
 /** 동의 항목 이름 — 디자인 L544. */
 export const CONSENT_ITEM_LABEL = "[필수] 개인정보 수집·이용 동의";
@@ -31,7 +24,7 @@ export const CONSENT_STATUS_LABEL: Record<ConsentStatus, string> = {
   unknown: "확인 불가",
 };
 
-/** 동의 상태 색 — 디자인 L545 는 `#2F6FE8`(primary). 빈 상태는 값이 없다는 뜻이라 muted. */
+/** 동의 상태 색 — 디자인 L545 는 `#2F6FE8`(primary). 값이 없다는 뜻인 쪽은 muted. */
 export const CONSENT_STATUS_TONE: Record<ConsentStatus, string> = {
   agreed: "text-primary",
   unknown: "text-muted",

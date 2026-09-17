@@ -1,48 +1,71 @@
+import type { ReactNode } from "react";
+import { redirect } from "next/navigation";
+
 import { AppShell } from "@/components/shared/AppShell";
 import { Header } from "@/components/shared/Header";
+import { hasCurrentConsent } from "@/server/account/consent";
+import { getViewer, type Viewer } from "@/server/auth/session";
+
+import { ErrorCard } from "../ErrorCard";
 
 import { ConsentStatusCard } from "./ConsentStatusCard";
-import { DotList, InfoCard, InfoParagraph } from "./InfoCard";
 import {
   COLLECTED_ITEMS,
   COLLECTION_PURPOSES,
   REFUSAL_RIGHT,
   RETENTION_PERIOD,
-  type ConsentQueryState,
   type ConsentStatus,
-} from "./mock";
+} from "./content";
+import { DotList, InfoCard, InfoParagraph } from "./InfoCard";
 
 /**
- * 서버도 인증도 아직 없어서 네 상태를 실제로 만들 수 없다.
- * 로그인 화면(`/login?error=cancelled`)이 이미 쓰는 방식 그대로 URL 쿼리로 고른다 —
- * 리뷰어가 코드를 고치지 않고 눈으로 확인할 수 있고, 나중에 실제 동의 기록 조회가
- * 붙으면 이 자리가 그대로 조회 결과로 바뀐다.
- * 모르는 값은 정상으로 묶어 원인 코드를 화면에 그대로 보이지 않는다.
+ * 개인정보 수집·이용 동의(보기) — 디자인 L534-562.
+ *
+ * 동의 상태는 `consents` 테이블의 **실제 값**이다(#88). `?state=` 로 상태를 고르던 계약은 없앴다.
+ *
+ * `hasCurrentConsent()` 는 **현재 버전**(D5)까지 같은 행을 본다. 고지 문구가 바뀌어 버전이
+ * 올라가면 옛 버전에만 동의한 계정은 「확인 불가」가 된다 — 지금 화면에 보이는 문구에 대한
+ * 동의 기록이 실제로 없기 때문이고, 「동의 완료」로 적으면 읽지 않은 문구를 확인해 준 셈이 된다.
+ *
+ * `redirect()` 를 `try` 밖에 두는 것이 중요하다. Next 의 `redirect()` 는 예외로 동작해서
+ * `try` 안에 있으면 `catch` 가 삼키고, 로그아웃한 사용자가 `/login` 대신 오류 화면을 보게 된다.
  */
-function resolveQueryState(raw: string | string[] | undefined): ConsentQueryState {
-  const value = Array.isArray(raw) ? raw[0] : raw;
+export default async function ConsentSettingsPage() {
+  let viewer: Viewer | null;
 
-  return value === "loading" || value === "error" ? value : "ready";
+  try {
+    viewer = await getViewer();
+  } catch {
+    return (
+      <ConsentShell>
+        <ErrorCard message="동의 상태를 불러오지 못했어요." />
+      </ConsentShell>
+    );
+  }
+
+  if (!viewer) redirect("/login");
+
+  let status: ConsentStatus;
+
+  try {
+    status = (await hasCurrentConsent(viewer.userId)) ? "agreed" : "unknown";
+  } catch {
+    return (
+      <ConsentShell>
+        <ErrorCard message="동의 상태를 불러오지 못했어요." />
+      </ConsentShell>
+    );
+  }
+
+  return (
+    <ConsentShell>
+      <ConsentStatusCard status={status} />
+    </ConsentShell>
+  );
 }
 
-/**
- * 동의 기록 조회 결과. `?state=empty` 는 계정에 연결된 동의 기록이 조회되지 않는
- * 경우라 동의 여부를 알 수 없는 상태(`unknown`)와 같은 것을 가리킨다.
- */
-function resolveStatus(raw: string | string[] | undefined): ConsentStatus {
-  const value = Array.isArray(raw) ? raw[0] : raw;
-
-  return value === "empty" ? "unknown" : "agreed";
-}
-
-export default async function ConsentSettingsPage({
-  searchParams,
-}: PageProps<"/settings/consent">) {
-  const { state } = await searchParams;
-
-  const queryState = resolveQueryState(state);
-  const status = resolveStatus(state);
-
+/** 정상 · 오류가 같은 틀을 쓴다. 고지 카드는 동의 여부와 무관하게 늘 옳으므로 양쪽에 다 있다. */
+function ConsentShell({ children }: { children: ReactNode }) {
   return (
     // 설정에서 들어오는 서브 화면이라 탭바가 없다. 뒤로 가기 목적지가
     // `/settings` 로 정해져 있어 `backHref` 를 준다(디자인 L534 `onBackToSettings`).
@@ -64,7 +87,7 @@ export default async function ConsentSettingsPage({
       }
     >
       <div className="flex flex-col gap-3 py-[22px]">
-        <ConsentStatusCard queryState={queryState} status={status} />
+        {children}
 
         <InfoCard title="수집·이용 목적">
           <DotList items={COLLECTION_PURPOSES} />
