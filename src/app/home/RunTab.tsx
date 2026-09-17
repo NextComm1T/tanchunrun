@@ -156,6 +156,7 @@ export function RunTab({ hasActiveRun, summary }: RunTabProps) {
           startError={startError}
           position={firstFix}
           onStart={handleStart}
+          onRetryGps={retryGps}
         />
 
         <MyRankCard
