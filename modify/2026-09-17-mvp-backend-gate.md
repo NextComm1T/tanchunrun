@@ -647,3 +647,42 @@ Settings · Withdrawal · Map · Mock · E2E)은 **2절 그대로다.**
 2. F3(#146) · F5(#148) 재실측
 3. `src/app` 의 `catch` 전수 확인
 4. 8-5 의 #171 파생 4건을 Issue 로 낼지 결정
+
+### 8-8. S5 실패 B — integration 실측 (2026-09-18)
+
+#193(실기기 실측)이 다음 날로 잡혀 **겹치지 않는 오늘** 돌렸다. 시작 전에 팀에 integration 러닝을 멈춰 달라고 알렸다.
+
+**환경** — integration Neon `summer-bonus-83521166`(콘솔에서 프로젝트 ID 확인 후 DDL) · Vercel Preview
+`tanchunrun-git-develop-…` (`develop` = `263dc05`) · 실제 카카오 로그인. 트리거는 S5 절차 그대로다.
+**production 에는 아무것도 하지 않았다.**
+
+**위치 주입** — 실제 GPS 가 아니다. 경로는 Zone 폴리곤(`zone.ts`)에서 계산한 성남 구간 한 지점에서 위도를 고정하고
+경도만 15m 간격으로 바꿔 경계를 넘나들게 했다. 두 가지 시행착오가 있었다.
+
+- **Chromium 위치 에뮬레이터(DevTools Sensors · Playwright `setGeolocation`)로는 이 시나리오를 만들 수 없다.**
+  좌표를 바꿀 때마다 `POSITION_UNAVAILABLE`(code 2) 오류를 먼저 보내고 새 위치를 보낸다(watch 콜백으로 직접 확인).
+  앱은 오류를 끊김으로 보고 segment 를 새로 여므로(D10) 점마다 segment 가 갈라져 거리 · 경계점이 0 이 된다.
+  **앱 결함이 아니다** — 실기기는 이렇게 동작하지 않는다. 그래서 로컬 하네스처럼 페이지의 `navigator.geolocation`
+  을 가짜로 바꿔 끼우고(`addInitScript`) `/running` 을 다시 열어 이어받은 뒤 좌표를 넣었다.
+- 15m 를 2초에 넣으면 시속 27km 로 P9(25km/h) 에 걸려 전부 빠진다. **3초 간격**(시속 18km)으로 넣었다.
+
+| 단계 | 결과 |
+| --- | --- |
+| 0 트리거 생성 | ✅ `pg_trigger` 에 `gate_fail_boundary` 1행 |
+| 1 경계를 넘는 러닝 종료 | ✅ 총 0.12km · 인정 0.07km · 경계를 4번 넘음 → 종료 → 결과 화면 「아직 저장하지 못했어요. 연결을 확인하고 다시 시도해주세요.」 · 다시 시도. `/finish` 는 `500` 으로 백오프 재시도 |
+| 2 SQL · 목록 | ✅ `finished` · **`failed`** · `finished_at` 있음 · 경계점 **0** · 원시 점 44 보존. 기록 목록에 없음 · 상세 **404** · 랭킹 「총 0명」 불변 |
+| 3 트리거 제거 → 다시 시도 | ✅ **`saved`** · 총 0.12km · 인정 0.07km · 경계점 **3** · `trigger_left 0` · `function_left 0` |
+
+SQL 은 전부 `begin transaction read only` 로 감쌌다(DDL 두 번만 예외). **SQL Editor 에 `Read-only` 토글이 보이지 않았다** —
+integration 도 쓰기가 기본이다. 사용자 id · 닉네임은 읽지 않았다.
+
+**8-4 의 Finish 줄에서 「실패 B 는 integration 몫이라 남는다」는 이것으로 채워졌다.** Failure 줄은 `src/app` 의 `catch`
+전수 확인이 남아 여전히 부분 통과다. 전체 판정은 바꾸지 않는다 — 실기기 · 다기기 · 탈퇴 삭제가 #193 에 남아 있다.
+
+**그 밖에 관찰 (Issue 로 만들지 않음 · 재현 미확인)**
+
+- DevTools Sensors 로 먼저 시도한 러닝(0km · `saved`)을 종료했을 때, 네트워크가 정상인데 「연결이 끊겨 결과 화면으로
+  넘어가지 못했어요」(#147 · `SlideToFinish.tsx`)가 떴고 「지금 다시 시도」 한 번에 결과로 넘어갔다. 이동 전 `HEAD /result/…`
+  확인(`REACH_PROBE_TIMEOUT_MS` = 5초)이 **느린 첫 응답을 오프라인으로 오판**했을 가능성이 있다(cold start 추정).
+  Vercel 로그는 권한이 없어(403) **확인하지 못했다.** 데이터는 보존됐고 버튼 한 번으로 풀린다. #193 에서 같은 일이
+  반복되면 Issue 로 만든다.
