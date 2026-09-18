@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import {
@@ -34,7 +35,11 @@ type ResultRecoveryGateProps = {
   serverState: "active" | "finalization_pending" | "finalization_failed";
 };
 
-type Phase = "working" | "error";
+/**
+ * `superseded` 는 **재시도 불가**다. 다른 둘과 달리 백오프를 걸지 않는다 — 서버가 이 기기의
+ * 종료 의사를 다시 받는 일이 없어서(#150 · D14) 재시도는 실패를 반복하는 것뿐이다.
+ */
+type Phase = "working" | "error" | "superseded";
 
 const BACKOFF_BASE_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
@@ -64,6 +69,11 @@ export function ResultRecoveryGate({
    * dev StrictMode 의 이중 마운트도 여기서 걸린다.
    */
   const inFlightRef = useRef(false);
+  /**
+   * 봉인된 generation 이라 서버가 이 종료 의사를 영영 받지 않는다(#150). 한 번 확인하면
+   * 래치한다 — 그러지 않으면 `online` 이벤트가 같은 요청을 다시 보내 실패를 반복한다.
+   */
+  const terminalRef = useRef(false);
 
   useEffect(() => {
     // dev StrictMode 는 mount → cleanup → mount 로 돈다. 여기서 다시 true 로 돌려놓지
@@ -203,6 +213,7 @@ export function ResultRecoveryGate({
 
   /** `active` + 로컬 intent 경로 — flush 후 `finishRun` 을 부른다. */
   const runFromIntent = useCallback(async () => {
+    if (terminalRef.current) return;
     if (inFlightRef.current) return;
     inFlightRef.current = true;
 
@@ -262,6 +273,38 @@ export function ResultRecoveryGate({
           return;
         }
         throw new Error("finalization_failed");
+      }
+
+      /*
+        이 기기의 종료 의사는 **봉인된 generation** 의 것이다(#150 · D14). 다른 기기가 인수
+        (409 `tracker_superseded`)했거나 종료(403 `not_tracker`)해서 서버는 이 종료 의사를 다시
+        받지 않는다. 재시도해도 영영 성공하지 않으므로 **백오프를 멈추고** 안내로 바꾼다 — 그냥
+        두면 「저장하지 못했어요 · 다시 시도」만 끝없이 반복한다.
+
+        **상태 코드가 아니라 `error` 로 가른다.** 같은 409 인 `points_missing` 과 같은 403 인
+        `forbidden_origin` 은 성질이 달라 지금처럼 재시도 대상으로 둔다.
+
+        `500 failed` 도 여기 넣지 않는다 — 서버에 닿지 못한 경우(실패 A)가 아래 catch 로 같은
+        안내에 닿는데, 이것까지 영구 실패로 막으면 연결이 돌아왔을 때의 정상 복구가 죽는다.
+        종료와 인수가 정확히 겹쳐 500 이 나오는 좁은 구간은 서버 쪽 #149 가 본다.
+
+        **버퍼와 종료 의사는 지우지 않는다.** D11 2차가 정한 삭제 사유는 `saved` 확인 ·
+        permanent 404 · `withdraw()` 셋뿐이고, 인수는 그중 어느 것도 아니다.
+      */
+      if (response.status === 409 || response.status === 403) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+
+        if (
+          body?.error === "tracker_superseded" ||
+          body?.error === "not_tracker"
+        ) {
+          terminalRef.current = true;
+          if (!mountedRef.current) return;
+          setPhase("superseded");
+          return;
+        }
       }
 
       if (response.status === 429) {
@@ -365,6 +408,34 @@ export function ResultRecoveryGate({
     window.addEventListener("online", restart);
     return () => window.removeEventListener("online", restart);
   }, [restart]);
+
+  /*
+    다음 행동은 `/` 다(#148 과 같은 선택이다). **인수와 종료를 화면이 구분하지 않는다** — 서버가
+    돌려준 두 error 는 사용자에게 「이 기기에서는 더 저장할 수 없다」 하나이고, 러닝이 아직 도는지는
+    루트 분기가 안다. 끝났으면 `/home`, 아직이면 `/running` 의 `TrackerGate` 가 두 액션을 준다.
+  */
+  if (phase === "superseded") {
+    return (
+      <div
+        role="alert"
+        className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center"
+      >
+        <p className="text-content font-extrabold text-foreground">
+          이 기기에서는 저장을 마칠 수 없어요
+        </p>
+        <p className="text-note leading-[1.6] font-medium text-subtle">
+          다른 기기가 이 러닝을 이어받았거나 이미 종료했어요. 지금까지 서버에 보낸
+          기록은 그대로 남아 있어요.
+        </p>
+        <Link
+          href="/"
+          className="mt-1 flex h-[52px] items-center justify-center rounded-xl bg-primary px-6 text-[17px] font-extrabold text-on-primary"
+        >
+          현재 상태 확인
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div
