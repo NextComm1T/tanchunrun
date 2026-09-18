@@ -96,6 +96,8 @@ cookie 없이 요청했다. `getViewer()` 는 cookie 가 없으면 DB 를 보지
 
 「코드 근거」는 **확인한 코드**이고 통과 근거가 아니다. 「절차」는 3절의 단계 번호다. **판정은 2차(6절) 기준**이다 — 1차는 Mock 만 통과였다.
 
+> **이 표는 `4494f52` 기준 2차 판정이다. 현재 판정은 8-4 가 정본이다** — 바뀐 줄이 6개 있다.
+
 | 항목 | 판정 | 코드 근거 | 실측 필요 → 절차 |
 | --- | --- | --- | --- |
 | **Auth / User** | 미검증 → 6-2 S1 · S8 (로컬 통과 · 실제 provider 창 취소만 남음) | `users` · `oauth_accounts`(PK = `provider + provider_account_id`) · `auth_sessions`(`token_hash` unique) · **이메일 · OAuth token 컬럼 없음**(`schema.ts:27-31` 주석 · 컬럼 목록) · 세션은 기기 행 단위 | 실제 Kakao · Google 로그인 · 취소 · 재로그인 동일 UID · 로그아웃 기기 세션 무효 · 다기기 → **S1 · S2 · S8** |
@@ -508,3 +510,128 @@ D11(CONFIRMED)은 ① 시계 허용 상수를 **`src/server/runs` 공용 policy 
 #145 는 ① 값을 `src/domain/measure` 에 두고 policy 가 그것을 다시 export 하며(client 가 같은 값을 봐야 하는데 `policy.ts` 는 `server-only` 라 import 할 수 없다), ② client 가 `started_at` 으로 fix 를 거르고, ③ 종료 번호를 내려 세션을 끝낼 수 있게 한다.
 
 **D11 을 2차로 갱신하거나 #145 구현을 ledger 에 맞추거나 — 둘 중 하나가 필요하다.** 결정 전까지 이 갈림을 여기 기록만 해 둔다.
+
+---
+
+## 8. 3차 — 회귀 실측 (2026-09-18)
+
+`develop` = **`687637e`**. 2차(6절) 이후 merge 된 것은 아래 8건이다.
+
+| PR | Issue | 무엇 |
+| --- | --- | --- |
+| #158 | #144 (F1) | 랭킹 동점 `firstReachedAt` 타입 |
+| #159 | #145 (F2) | `invalid_recorded_at` 한 점이 러닝을 막던 문제 |
+| #161 | #146 (F3) | `isUniqueViolation` 이 drizzle 이 감싼 오류를 못 보던 문제 |
+| #170 | #164 | terminal tombstone · `bound` · `maxKnownRawSeq` |
+| #186 | #149 | finish tx1 이 세션 행을 잠근 채로 판정 |
+| #185 | #150 | 인수당한 뒤 결과 recovery 무한 재시도 |
+| #184 | #147 (F4) | 완전 오프라인 종료가 브라우저 오류 페이지로 이탈 |
+| #187 | #171 | D11 (A) permanent cleanup 범위 |
+
+(#148(F5)은 2026-09-18 에 닫혔다. #151 · #172 · #173 · #174 · #153 · #118 도 같은 날 들어왔다.)
+
+### 8-1. 환경 · 방법
+
+**저장소 밖에 하네스를 새로 세워 브라우저로 돌렸다.** 로컬에 PostgreSQL 이 없고(`docker` 명령 없음 ·
+`localhost:5432` 닫힘) 저장소의 `.env.local` 을 쓰지 않는다.
+
+1. `git archive origin/develop` 을 임시 폴더에 풀고 `npm ci` → `npm run build` → `npx next start -p 3000`.
+   **복사본에 `.env.local` 이 없어야 한다** — `drizzle.config.ts` 가 그 파일을 먼저 읽는다
+2. `embedded-postgres@17.10.0-beta.17`. **`initdbFlags: ["--encoding=UTF8","--locale=C"]` 가 필요하다** —
+   한국어 로케일에서 initdb 가 text search config 를 못 찾아 죽는다. 포트 55432
+3. `DATABASE_URL=… npm run db:migrate` (프로젝트 정본 명령) — migration 4개 적용
+4. env 는 셸로만 준다. `APP_ORIGIN=http://localhost:3000` · OAuth 4개와 `NEXT_PUBLIC_NAVER_MAP_KEY_ID` 는 자리표시자
+5. 로그인은 OAuth 없이 DB 에 직접 심는다 — `users` · `oauth_accounts`(PK `provider` + `provider_account_id`) ·
+   `auth_sessions`(`token_hash = sha256(raw)`). 쿠키는 **`tcr_session`**, 값은 raw token
+6. **러닝은 홈에서 실제로 시작한다** — `run_sessions` 를 직접 심지 않는다. 그래야 tracker record 가
+   IndexedDB 에 진짜로 생기고 8-2 의 5번을 판정할 수 있다
+7. Playwright 의 `setGeolocation` 은 timestamp 를 `Date.now()` 로 고정해 시각 시나리오를 만들 수 없다.
+   `addInitScript` 로 `navigator.geolocation` 을 바꾸고 `window.__emitFix(lat,lng,ts,acc)` 를 노출시킨다
+
+**하네스 함정 — 가짜 geolocation 에 초기 좌표가 없으면 홈이 「GPS 확인 중」에서 멈춘다.**
+`useGeolocationReady` 가 `getCurrentPosition` 을 먼저 부르는데, 콜백을 큐에 담지 않고 좌표가 생길 때만
+호출하게 만들면 앱이 영원히 기다린다. 초기 좌표를 넣어 두고 시작해야 한다.
+
+미인증 차단은 하네스에서도 확인했다 — 쿠키 없이 `/records` 는 `307 → /login`, 쿠키가 있으면
+`/` 가 `307 → /running`(active 갈래)·`/records` 는 200.
+
+### 8-2. 돌린 것 — 6 / 6 통과
+
+**2차의 전체 절차(S1~S9)를 다시 돌린 것이 아니다.** 오늘 merge 가 건드린 코드에 걸리는 것만 좁혀 돌렸다.
+특히 `SlideToFinish.tsx` 는 #120 이 a11y 를 고쳐 둔 파일인데 #147 이 오프라인 분기를 더해서 회귀 위험이 있었다.
+
+| # | 검증 | 결과 | 관찰한 것 |
+| --- | --- | --- | --- |
+| 1 | #120 keyboard 로 러닝 종료 | 통과 | 슬라이더 포커스 → `End` 로 `aria-valuenow=100` → `Enter` 로 `/result/{id}` 이동. **#147 과의 회귀 없음** |
+| 2 | #120 pointer cancel 복귀 | 통과 | 드래그 중 21 → `pointercancel` → **0 으로 복귀** · `/running` 유지 |
+| 3 | #147 완전 오프라인 종료 | 통과 | 브라우저 오류 페이지로 **가지 않는다.** 앱 안에 남고 「연결이 끊겨 결과 화면으로 넘어가지 못했어요」 + 「지금 다시 시도」 노출 |
+| 3-b | #147 온라인 복귀 | 통과 | `setOffline(false)` → `online` 이벤트로 **자동** `/result/{id}` 이동. 사용자가 앱을 다시 열 필요가 없다 |
+| 4 | #150 인수 후 재시도 중단 | 통과 | generation 을 2로 올린 뒤 종료 → **finish 응답 `409` 1회뿐** · 「다른 기기가 이 러닝을 이어받았거나 이미 종료했어요」 · **12초 동안 추가 호출 0회** |
+| 5 | #171 `saved` 뒤 정리 | 통과 | 시작 시 tracker record 1건 → `saved` 뒤 **tracker · points · finishIntent 모두 0** |
+
+**4번은 #149 가 아니라 #150 이 막은 것이다.** 인수가 finish **이전**에 일어나면 서버는 잠금과 무관하게
+`409` 를 준다. #149 가 고친 것은 판정 직후와 `UPDATE` 사이의 좁은 구간이고, **그 구간은 재현하지 못했다**(8-5).
+
+### 8-3. 2차 결함 F1~F5 의 현재 상태
+
+| 결함 | Issue | 수정 | 수정 후 실측 |
+| --- | --- | --- | --- |
+| F1 심각 · 랭킹 동점 | #144 | PR #158 | **로컬 재실측 있음**(7-1). integration 에서 동점 상태는 만들지 않았다 |
+| F2 높음 · `invalid_recorded_at` | #145 | PR #159 | **로컬 재실측 있음**(7-2) |
+| F3 중간 · unique 위반 미판별 | #146 | PR #161 | **재실측 안 함.** 닉네임 중복 · 동시 시작 경로를 이번에 돌리지 않았다 |
+| F4 중간 · 오프라인 종료 이탈 | #147 | PR #184 | **오늘 실측 통과**(8-2 의 3 · 3-b) |
+| F5 낮음 · 인수당한 기기 안내 없음 | #148 | 2026-09-18 closed | **재실측 안 함** |
+
+### 8-4. 판정 갱신 — 2절 표를 이것으로 대체한다
+
+2절 표는 `4494f52` 기준이다. **현재 판정은 아래가 정본이다.** 바뀐 줄만 적는다.
+
+| 항목 | 2차 판정 | 3차 판정 | 근거 |
+| --- | --- | --- | --- |
+| **Signup / Consent / Nickname** | 미통과 → F3 | **미검증**(원인 수정됨 · 재실측 없음) | #146 이 `isUniqueViolation` 을 고쳤지만 닉네임 중복 · 가입 재개 경로를 다시 돌리지 않았다. **통과로 올리지 않는다** |
+| **Running Measurement** | 미통과 → F2 | **통과(로컬)** | 7-2 의 로컬 재실측. 실기기 GPS · 화면 꺼짐 구간은 여전히 남는다 |
+| **Finish** | 미통과 → F1 · F2 | **통과(로컬)** | 7-1 · 7-2 + 8-2 의 1 · 3 · 3-b · 4. **실패 B(S5 · DB trigger)는 integration 몫이라 남는다** |
+| **Ranking** | 미통과 → F1 | **통과(로컬)** | 7-1. integration 에서 동점 상태 미확인 |
+| **Home** | 미통과 → F1 | **통과(로컬)** | 7-1 |
+| **Failure** | 미통과 → F4 | **부분 통과** | F4 는 8-2 의 3 · 3-b 로 통과. **`src/app` 의 `catch` 전수 확인은 여전히 안 했고**, 실패 B 주입도 남았다 |
+
+나머지 줄(Auth · Root Routing · Location/GPS · RunSession Start · P8 · Result · Records · Personal Best ·
+Settings · Withdrawal · Map · Mock · E2E)은 **2절 그대로다.**
+
+**전체 판정 — Gate 미통과.** 미통과 줄은 사라졌지만 **「통과」가 전부 로컬 근거**이고, integration ·
+실기기 · 실제 OAuth 로만 확인할 수 있는 항목이 그대로 남아 있다(6-4 · 8-5).
+
+### 8-5. 여전히 미검증
+
+**오늘 것**
+
+- **#149 의 좁은 경쟁 구간** — 인가 판정 직후와 `UPDATE` 사이에 인수가 끼어들어 `500` 이 나가던 경로.
+  **재현하지 못했고 코드로만 확인했다.** 데드락이 생기지 않는다는 것(`points.ts` 와 같은 잠금 순서)도 정적 확인이다
+- **#164 crash-between-writes** — tombstone 과 낮춘 `lastRawSeq` 를 한 transaction 으로 쓰는 경로
+  (`markTerminalRawSeq` 의 `finishIntent` 인자)는 **실행되지 않았고 코드로만 확인했다**
+- **#171 파생 4건** — ① (A)① 의 finish intent 삭제는 `readFinishIntent` 읽기가 실패하면 조용히 건너뛰고
+  던지지도 않는다(원래 있던 동작 · `runBuffer.ts:373`) ② (A)② permanent 404 경로에 로컬 cleanup 호출부가
+  없다 ③ `deleteRunData` 의 `.catch(() => null)` 은 실행될 수 없는 dead code ④
+  `src/server/account/actions.ts:115` 에 D11 **1차(SUPERSEDED)** 의 번호가 남아 있다. 근거는 PR #187 댓글
+- **F3(#146) · F5(#148) 재실측 없음**(8-3)
+- 지도는 키가 자리표시자여서 하네스 내내 「지도를 사용할 수 없습니다」 상태로 돌았다. 지도는 이번 검증 대상이 아니었다
+
+**이어지는 것** — 6-4 의 integration · 실기기 목록은 그대로다(실제 OAuth 창 · 실기기 GPS · 화면 꺼짐 구간 ·
+실패 B DB trigger · Neon · Vercel 배포 · 다기기 · 탈퇴 삭제).
+
+**그 밖에 관찰** — production DB 에 `run_sessions` 1건인데 `route_points` 0건이다(#180 확인 중).
+그 세션이 `active` 면 해당 사용자는 P7 때문에 새 러닝을 시작할 수 없다. **확인하지 않았다.**
+
+### 8-6. 7-4 의 갈림은 해소됐다
+
+7-4 가 적어 둔 「D11 을 2차로 갱신하거나 #145 구현을 ledger 에 맞추거나」는 **D11 2차(CONFIRMED ·
+2026-09-18)로 정리됐다.** 2차 문안이 1차의 다섯 갈래 — ① durable 대상 정의 ② cleanup 조건
+③ 시계 허용 상수 위치 ④ client 의 서버 `startedAt` 사용 ⑤ 범위 밖 점으로 끝낼 수 없게 된 세션의
+정리 경로 — 를 **명시적으로 대체한다**고 적고 있다. 1차는 SUPERSEDED 다.
+
+### 8-7. 다음
+
+1. **integration 실측** — 6-4 목록. Gate 를 통과로 올리려면 이것 말고 다른 길이 없다
+2. F3(#146) · F5(#148) 재실측
+3. `src/app` 의 `catch` 전수 확인
+4. 8-5 의 #171 파생 4건을 Issue 로 낼지 결정
