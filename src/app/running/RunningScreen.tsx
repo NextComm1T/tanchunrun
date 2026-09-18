@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
 import type { RawPoint } from "@/domain/measure";
 
@@ -68,6 +69,23 @@ export function RunningScreen({
   const gpsLost =
     !trackerStopped &&
     (tracker.gpsWarning || tracker.status === "permission-denied");
+
+  /*
+    서버가 끝내 받지 않은 점이 하나라도 생겼다(#151). 훅의 `conflict` 를 **조건에 그대로
+    걸지 않고 여기서 래치한다** — 그 값은 다음 flush 가 성공하거나 버퍼가 비는 순간 `idle`
+    로 돌아가서(`useRunTracker.flush`), 직접 걸면 배너가 수백 ms 깜빡이고 사라진다.
+
+    버려진 점은 돌아오지 않으므로 사실 자체는 이 러닝이 끝날 때까지 유효하다. 래치는 화면
+    안에서만 하고 훅의 업로드 · 버퍼 로직은 건드리지 않는다.
+
+    effect 가 아니라 **렌더 중에 조정한다** — 훅 바깥의 무엇과도 동기화하지 않고 이미 받은
+    값에서 바로 나오는 상태라 effect 를 두면 렌더가 한 번 더 도는 것 말고 얻는 것이 없다
+    (React 「You Might Not Need an Effect」). 한 번 true 면 조건이 다시 서지 않아 멈춘다.
+  */
+  const [pointsDropped, setPointsDropped] = useState(false);
+  if (tracker.uploadStatus === "conflict" && !pointsDropped) {
+    setPointsDropped(true);
+  }
 
   return (
     <>
@@ -168,6 +186,25 @@ export function RunningScreen({
         >
           지금은 전송 속도를 잠시 늦추고 있어요. 측정은 계속되고 기록도 보존되며, 잠시 후
           자동으로 다시 보냅니다.
+        </p>
+      ) : null}
+
+      {/*
+        위 둘과 달리 **되돌아오지 않는다.** offline · rate-limited 는 「보존된다 · 곧 다시
+        보낸다」지만 여기는 그 점이 기록에서 빠진 채로 끝난다 — 같은 회색 안내로 두면 기다리면
+        해결되는 것으로 읽힌다. 그래서 warning 토큰으로 구분한다.
+
+        **원인을 문구에 박지 않는다.** 같은 번호에 다른 좌표가 이미 있었든(`point_conflict`)
+        서버가 받지 않는 시각이었든(`invalid_recorded_at` · #145) 사용자에게는 「저장되지 않은
+        구간이 생겼다」 하나이고, 할 수 있는 일도 없다. 원인이 늘 때마다 문구를 늘리지 않는다.
+        rawSeq · 409 같은 내부 용어도 쓰지 않는다(#125).
+      */}
+      {pointsDropped ? (
+        <p
+          role="status"
+          className="mx-4 mt-3 shrink-0 rounded-md border-[1.5px] border-warning-border bg-warning-soft px-4 py-2.5 text-note font-bold text-warning"
+        >
+          일부 구간이 기록에 저장되지 않았어요. 측정과 나머지 기록은 그대로 이어집니다.
         </p>
       ) : null}
 
