@@ -22,6 +22,13 @@ type RunStatusBarProps = {
   startedAt: string;
   gpsLost: boolean;
   inZone: boolean;
+  /**
+   * 이 기기의 측정이 끝났다(#148) — 다른 기기가 인수하거나 종료해 watch 가 멈춘 상태다.
+   *
+   * GPS · 구역 배지는 **측정이 돌고 있을 때만** 뜻이 있다. 멈춘 뒤에도 「GPS 정상」이
+   * 깜빡이면 사용자는 아직 재고 있다고 읽는다.
+   */
+  stopped?: boolean;
 };
 
 const TICK_MS = 1000;
@@ -63,6 +70,7 @@ export function RunStatusBar({
   startedAt,
   gpsLost,
   inZone,
+  stopped = false,
 }: RunStatusBarProps) {
   /*
     상태로 두는 것은 **현재 시각 하나**고 경과 시간은 거기서 파생시킨다. 경과 시간을 상태로
@@ -92,7 +100,15 @@ export function RunStatusBar({
       </p>
 
       <div className="mt-2 flex flex-col items-end gap-1.5">
-        {gpsLost ? (
+        {stopped ? (
+          // 경과 시간은 서버 `started_at` 기준이라 그대로 두고, 측정 상태만 사실대로 바꾼다.
+          <StatusBadge
+            dotClassName="bg-disabled"
+            className="bg-surface-muted text-muted"
+          >
+            측정 멈춤
+          </StatusBadge>
+        ) : gpsLost ? (
           // 신호를 잃은 동안에는 구역 배지를 숨긴다 — 구역 판정이 성립하지 않는다.
           <StatusBadge
             dotClassName="bg-warning-dot"
