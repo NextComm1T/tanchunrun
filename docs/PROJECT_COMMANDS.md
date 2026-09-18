@@ -109,6 +109,27 @@ npm run db:migrate
 2026-09-17 확인). migration 을 적용하고 promote 한 뒤 문제를 발견하기까지 6시간을 넘기는 것은
 드물지 않다. **자동 window 에 기대면 안 된다 — 적용 직전에 snapshot 을 직접 만든다.**
 
+#### 브랜치 보호는 켤 수 없다 — Free plan 제약 (#153)
+
+**Neon 의 Branch protection 은 유료 플랜 전용이다** — Launch 2개 · Scale 5개이고 **Free plan 은
+미지원**이다(Neon 공식 문서 · 2026-09-18 확인). production `little-morning-18741941` 은 Free plan 이라
+`main` 상세에 `Protect` 가 아예 없다. **화면을 못 찾은 것이 아니라 그 기능이 없다.**
+
+그래서 콘솔에서 `main` 을 지우거나 되돌리는 것을 **막아 주는 장치가 없다.** 대신 사람이 지킨다.
+
+- **production 프로젝트를 만질 수 있는 사람을 늘리지 않는다.**
+- **콘솔을 연 순간 아래 1번(어느 프로젝트인지)을 먼저 확인한다.** integration 과 헷갈리면 그 뒤가 전부 무의미하다.
+- **`Delete` · `Reset from parent` · `Restore` 는 아래 절차를 밟을 때만 누른다.**
+- **SQL Editor 는 `Read-only` 를 켠 채로 연다**(#89). 쓰기가 필요한 단계만 잠시 끄고, **integration 에서만** 한다.
+
+integration `summer-bonus-83521166` 은 **보호 대상이 아니다.** 같은 plan 제약을 받기도 하지만,
+애초에 실패 주입 DDL 을 의도적으로 돌리는 곳이라 보호가 목적과 어긋난다. 여기 데이터는 잃어도 되고,
+잃으면 빈 DB 에 스키마만 다시 적용한다.
+
+보호가 없다는 것은 **자식 브랜치에도 영향을 준다** — 보호된 브랜치에서 만든 자식은 role 비밀번호가
+자동으로 재생성되는데(Neon 공식 문서), 보호가 없으면 그 재생성이 없어 부모의 자격증명을 그대로
+물려받는다. 실제로 production `main` 아래에 자동 생성된 preview 브랜치가 남아 있다(#180).
+
 #### 적용 전 (promote 전 · 1회)
 
 1. **어느 프로젝트인지 확인한다.** production 은 Neon `little-morning-18741941`,
