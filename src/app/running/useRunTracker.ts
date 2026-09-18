@@ -276,6 +276,24 @@ export function useRunTracker({
     setStatus("tracking");
   }, [clearWarningTimer]);
 
+  /**
+   * 시각 때문에 점 하나가 버려졌다고 센다(#160 · #172).
+   *
+   * 부르는 곳이 **둘**이다 — client prefilter(`isWithinRunStart`)가 거르는 경우와, 그것을
+   * 통과했는데 서버가 `invalid_recorded_at` · `bound: "past"` 로 영구 거절하는 경우다.
+   * 원인은 같은데(기기 시계가 늦다) 탐지 지점만 달라서, 한쪽만 세면 안내가 절반의 경우에만
+   * 뜬다(#172).
+   *
+   * **임계값과 리셋 규칙은 #160 이 정한 것을 그대로 쓴다** — 새 상수를 만들지 않고, 정상 fix
+   * 하나가 들어오면 `leaveGap` 이 0 으로 되돌린다.
+   */
+  const noteClockReject = useCallback(() => {
+    clockRejectsRef.current += 1;
+    if (clockRejectsRef.current >= CLOCK_SKEW_AFTER_REJECTS) {
+      setClockSkew(true);
+    }
+  }, []);
+
   // ── 업로드 ────────────────────────────────────────────────────────────────
   const scheduleFlush = useCallback((delayMs: number) => {
     if (stoppedRef.current) return;
@@ -418,6 +436,16 @@ export function useRunTracker({
           return;
         }
 
+        /*
+          **원인은 시계다.** prefilter 를 통과한 점을 서버가 `past` 로 돌려보냈다는 것은
+          client 와 서버의 허용치가 갈렸다는 뜻이고, 사용자가 할 일은 #160 과 똑같다. 여기서
+          세지 않으면 그 러닝은 「GPS 신호 약함」만 보거나 아무 안내도 못 본다(#172).
+
+          `future` 는 위에서 이미 빠졌다 — 서버 시각이 흐르면 통과하므로 terminal 이 아니고,
+          시계 안내 대상도 아니다.
+        */
+        noteClockReject();
+
         droppedRawSeqsRef.current = [
           ...droppedRawSeqsRef.current,
           body.rawSeq,
@@ -457,7 +485,14 @@ export function useRunTracker({
     } finally {
       flushingRef.current = false;
     }
-  }, [scheduleFlush, sessionId, stopWatch, trackerGeneration, userId]);
+  }, [
+    noteClockReject,
+    scheduleFlush,
+    sessionId,
+    stopWatch,
+    trackerGeneration,
+    userId,
+  ]);
 
   /*
     타이머 callback 이 항상 최신 `flush` 를 부르게 한다. `scheduleFlush` 가 `flush` 를 직접
@@ -491,10 +526,7 @@ export function useRunTracker({
           신호가 없어서 비는 것과 화면에서 구분되지 않으면 사용자가 엉뚱한 행동을 하게 된다.
           시각을 고쳐서 받아 주지는 않는다 — 그 방향은 범위 밖이다(#145 · D10 · P9).
         */
-        clockRejectsRef.current += 1;
-        if (clockRejectsRef.current >= CLOCK_SKEW_AFTER_REJECTS) {
-          setClockSkew(true);
-        }
+        noteClockReject();
         enterGap("signal");
         return;
       }
@@ -540,6 +572,7 @@ export function useRunTracker({
     [
       enterGap,
       leaveGap,
+      noteClockReject,
       scheduleFlush,
       sessionId,
       startedAtMs,
