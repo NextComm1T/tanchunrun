@@ -76,8 +76,19 @@ export type UploadStatus =
 
 export type RunTrackerView = {
   status: TrackerStatus;
-  /** gap 이 2초 이상 이어졌다(P3). platform gap 에서는 켜지 않는다. */
+  /**
+   * gap 이 2초 이상 이어졌다(P3). platform gap 에서는 켜지 않는다.
+   *
+   * `clockSkew` 와 **동시에 켜지지 않는다**(#160) — 원인이 다르면 사용자가 할 일도 다르다.
+   */
   gpsWarning: boolean;
+  /**
+   * 기기 시계가 어긋나 fix 가 **시각 때문에** 연속으로 걸러지고 있다(#160 · #145).
+   *
+   * 신호가 없어서 비는 것과 화면상 구분이 없으면 사용자는 하늘이 트인 곳을 찾아 나서게
+   * 된다. 원인은 기기 설정이고, 고치면 그 자리에서 다시 기록된다.
+   */
+  clockSkew: boolean;
   uploadStatus: UploadStatus;
   routePoints: RoutePoint[];
   totalDistanceM: number;
@@ -113,6 +124,15 @@ const BACKOFF_MAX_MS = 60_000;
 
 /** 현재 페이스를 다시 그리는 주기. 경과 시간(`RunStatusBar`)과 같은 1초다. */
 const PACE_TICK_MS = 1000;
+
+/**
+ * 이만큼 **연속으로** 시각 때문에 걸러져야 기기 시계 문제로 본다(#160).
+ *
+ * 시작 직전의 캐시된 fix 하나로는 단정하지 않는다 — 그건 시계가 정상인 기기에서도 흔하고
+ * (#145), 바로 뒤에 제대로 된 fix 가 들어와 그 자리에서 풀린다. 시계가 정말 어긋난 기기는
+ * **모든** fix 가 걸러지므로 몇 초 안에 이 수에 닿는다.
+ */
+const CLOCK_SKEW_AFTER_REJECTS = 3;
 
 const GEOLOCATION_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
@@ -166,6 +186,7 @@ export function useRunTracker({
   const [status, setStatus] = useState<TrackerStatus>("starting");
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
   const [gpsWarning, setGpsWarning] = useState(false);
+  const [clockSkew, setClockSkew] = useState(false);
   const [points, setPoints] = useState<RawPoint[]>([]);
   const [paceTick, setPaceTick] = useState(() => Date.now());
 
@@ -180,6 +201,8 @@ export function useRunTracker({
   const lastAcceptedRef = useRef<LastAccepted | null>(null);
   const nextRawSeqRef = useRef(1);
   const gapPendingRef = useRef(false);
+  /** 시각 때문에 연속으로 걸러진 fix 수(#160). accept 하나로 0 이 된다. */
+  const clockRejectsRef = useRef(0);
   const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushRef = useRef<(() => Promise<void>) | null>(null);
@@ -247,6 +270,9 @@ export function useRunTracker({
   const leaveGap = useCallback(() => {
     clearWarningTimer();
     setGpsWarning(false);
+    // 점이 하나라도 들어왔으면 시각은 더 이상 문제가 아니다 — 사용자가 시계를 고친 경우다.
+    clockRejectsRef.current = 0;
+    setClockSkew(false);
     setStatus("tracking");
   }, [clearWarningTimer]);
 
@@ -460,6 +486,15 @@ export function useRunTracker({
         같은 값을 쓴다 — 여기서 통과한 점은 서버도 받는다.
       */
       if (!isWithinRunStart(fix.recordedAt, startedAtMs)) {
+        /*
+          걸러지는 것 자체는 gap 과 같게 다루되(경로를 잇지 않는다), **원인은 따로 센다**(#160).
+          신호가 없어서 비는 것과 화면에서 구분되지 않으면 사용자가 엉뚱한 행동을 하게 된다.
+          시각을 고쳐서 받아 주지는 않는다 — 그 방향은 범위 밖이다(#145 · D10 · P9).
+        */
+        clockRejectsRef.current += 1;
+        if (clockRejectsRef.current >= CLOCK_SKEW_AFTER_REJECTS) {
+          setClockSkew(true);
+        }
         enterGap("signal");
         return;
       }
@@ -777,7 +812,12 @@ export function useRunTracker({
 
   return {
     status,
-    gpsWarning,
+    /*
+      원인을 아는 쪽이 이긴다(#160). 시계 때문인 줄 알면서 「GPS 신호 약함」을 함께 띄우면
+      사용자는 둘 중 무엇을 고쳐야 할지 모른다. 판정은 여기서 끝내고 화면은 그리기만 한다.
+    */
+    gpsWarning: gpsWarning && !clockSkew,
+    clockSkew,
     uploadStatus,
     routePoints: result.routePoints,
     totalDistanceM: result.totalDistanceM,

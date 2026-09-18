@@ -276,12 +276,12 @@ import heroOtter from "@assets/otter-hero-wide-v2.png";
 ```tsx
 import { getViewer } from "@/server/auth/session";
 
-const viewer = await getViewer();   // { userId, accountState, nickname, provider } | null
+const viewer = await getViewer();   // { userId, accountState, nickname, provider, hasActiveRun } | null
 ```
 
 - 서버에서만 부른다. **client 가 보낸 userId 를 믿지 않는다** — 서버 함수는 항상 세션에서 얻는다.
 - `null` 이면 로그아웃이다. `accountState` 는 `signing_up`(닉네임 미설정) 또는 `active`.
-- `hasActiveRun` 은 아직 없다. #81 이 기존 필드를 바꾸지 않고 **덧붙인다**.
+- `hasActiveRun` 은 #81 이 기존 네 필드를 바꾸지 않고 **덧붙였다**. 루트 분기(`/` → `/running`)와 로그아웃 서버 가드가 이 값을 본다.
 
 **로그아웃** — `signOut()`(server action)이 현재 기기 세션 행을 지우고 쿠키를 지운다.
 `{ ok: true } | { ok: false, error: "failed" }` 를 돌려주므로, **`ok` 일 때만 화면을 옮긴다.**
@@ -295,9 +295,18 @@ const viewer = await getViewer();   // { userId, accountState, nickname, provide
 
 실행에 필요한 것(로컬 PostgreSQL · `.env.local` · migration)은 [PROJECT_COMMANDS.md](./PROJECT_COMMANDS.md).
 
+## 플랫폼 제약 (D1)
+
+MVP 는 **Web-only Next.js** 다. native wrapper · background location 은 MVP 이후로 미뤘다(#78 D1).
+
+- **화면이 숨으면 측정하지 않는다.** `visibilitychange → hidden` 에서 watch 를 정리하고, 숨은 구간은 거리 · 경로에서 뺀다. 돌아오면 권한을 다시 확인하고 **새 segment** 로 재시작한다(`src/app/running/useRunTracker.ts`). 숨은 동안에는 GPS 경고(P3)를 띄우지 않는다.
+- **경과 시간은 숨은 시간을 포함한다** — `started_at` 기준이다.
+- **Screen Wake Lock 은 best-effort 다.** 실패 · 미지원 · 브라우저의 해제는 러닝 실패가 아니다.
+- 기획 문서의 「화면이 꺼지거나 다른 앱으로 전환된 동안에도 측정은 계속」(`docs/06-data.md:22` · `docs/07-screens.md:36`)과 다르다. 차이는 [modify/2026-09-16-background-gps.md](../modify/2026-09-16-background-gps.md) 에 있다.
+
 ## 아직 없는 것
 
-- **첫 화면 분기 · 가입 흐름** — `/` 는 여전히 `/login` 으로만 보낸다. 로그인 상태 · 가입 중 여부에 따른 분기와 동의 · 닉네임 저장은 #80 이 한다. `layout.tsx` · 루트 `page.tsx` 는 **공유 인프라**라 화면 브랜치에서 건드리지 않는다.
-- **API · 데이터** — 인증 밖의 서버는 아직 없다. 러닝 · 랭킹 · 기록 화면은 mock 데이터로 만든다.
-- **화면 테스트 러너** — `npm test`(Vitest)는 `src/domain` 만 돈다(#82). `src/app` 의 검증은 여전히 lint · build · 브라우저 확인뿐이다.
-- **실지도 확인** — `NEXT_PUBLIC_NAVER_MAP_KEY_ID` 와 NAVER Console 등록이 끝나야 지도가 실제로 뜬다(#78 D3-B). 그전에는 `credential` 안내가 지도 자리에 보이는 것이 정상이다.
+- **MVP Gate 실측** — 실제 OAuth · GPS 로 연속 시나리오 · 실패 A/B · 다기기 · 탈퇴 삭제를 아직 돌리지 않았다(#89). 절차와 현재 판정은 [modify/2026-09-17-mvp-backend-gate.md](../modify/2026-09-17-mvp-backend-gate.md).
+- **화면 테스트 러너** — `npm test`(Vitest)는 `src/**/*.test.ts` 의 **순수 함수**만 돈다(D12 2차). `src/app` 과 DB 를 거치는 경로의 검증은 lint · build · 브라우저 확인뿐이다.
+- **native 앱 · 백그라운드 측정** — 위 「플랫폼 제약」.
+- **branch protection** — `main` · `develop` 에 ruleset 이 없어 「직접 push 금지」가 문서로만 지켜진다(#118 · admin 권한이 필요해 보류).

@@ -24,9 +24,8 @@ import type { Ring, RoutePoint } from "@/domain/measure";
 /**
  * 실제 위경도를 그리는 공용 지도(#84 · #78 MAP · D3-B).
  *
- * legacy `TancheonMap`(SVG 일러스트 · 340×220 좌표계)과 **나란히 존재한다.** 화면이 하나씩
- * 옮겨 오고, 마지막 consumer 가 옮겨진 뒤 #86 이 legacy 를 지운다. 이 파일은 legacy 를
- * 건드리지 않는다.
+ * legacy `TancheonMap`(SVG 일러스트 · 340×220 좌표계)은 마지막 consumer(기록 상세)가 옮겨 온 뒤
+ * **#86 에서 삭제됐다.** 실제 위경도를 그리는 공용 지도는 이제 이 파일 하나뿐이다.
  *
  * ## 표시 전용이다
  *
