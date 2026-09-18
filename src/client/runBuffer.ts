@@ -5,6 +5,7 @@ import {
   withTransaction,
   type StoreName,
 } from "./idb";
+import { deleteTrackerRecordForSession } from "./tracker";
 
 /**
  * 아직 서버가 받지 못한 측정점과 종료 의사(#83 · D11).
@@ -28,6 +29,8 @@ import {
  * **(A) session 전체 durable state** — ① 서버가 `saved` 확인 ② 서버가 그 session 을 permanent
  * 404 로 응답 ③ `withdraw()` 성공. **시간 기반 자동 만료를 두지 않고, `signOut()` 성공은 삭제
  * 사유가 아니다** — 로그아웃했다고 아직 못 보낸 러닝 기록을 버리면 다시 로그인해도 복구할 수 없다.
+ * **(A) 가 지우는 「전부」에는 tracker record 도 든다**(#171) — 보관은 `tracker.ts` 가 하지만
+ * ① · ② 의 정리는 `deleteRunData` 가 그쪽 삭제 함수를 불러 함께 끝낸다. ③ 은 `accountData.ts` 다.
  *
  * **(B) 개별 `rawSeq`** — payload 를 버리는 것이 곧 그 번호의 durable 상태를 버리는 것은 아니다.
  * 서버 쪽 사실이 달라 셋을 다르게 다룬다.
@@ -191,6 +194,51 @@ function generationRange(
     [sessionId, trackerGeneration, fromRawSeq],
     [sessionId, trackerGeneration, toRawSeq],
   );
+}
+
+/**
+ * 같은 복합 키에서 **그 세션의 모든 generation** 구간.
+ *
+ * (A) permanent cleanup 이 보는 범위다 — D14 takeover 로 한 기기에 같은 세션의 gen 1 · 3
+ * 레코드가 함께 남을 수 있어서, generation 하나만 지우면 나머지가 영구히 남는다.
+ * 하한이 `1` 인 것은 `tracker_generation >= 1` · `raw_seq >= 1` 이 둘 다 계약이기 때문이다
+ * (D11 · D14 · `schema.ts` 의 CHECK).
+ */
+function sessionRange(sessionId: string): IDBKeyRange {
+  return IDBKeyRange.bound(
+    [sessionId, 1, 1],
+    [sessionId, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
+  );
+}
+
+/**
+ * 그 세션의 레코드 중 **소유자가 `userId` 인 것만** 지운다.
+ *
+ * key range 로 한 번에 지우지 않는 이유는 키에 `userId` 가 없어서다 — 값을 봐야
+ * 소유자를 안다. D11 은 현재 viewer 와 `userId` 가 다른 레코드를 **임의로 삭제하지
+ * 않는다**고 못박았고, 그 규칙이 (A) 라고 해서 풀리지 않는다.
+ */
+function deleteSessionRecordsOwnedBy(
+  store: IDBObjectStore,
+  input: { userId: string; sessionId: string },
+): void {
+  const request = store.openCursor(sessionRange(input.sessionId));
+
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) return;
+
+    const record = cursor.value as { userId?: unknown } | null;
+    if (
+      typeof record === "object" &&
+      record !== null &&
+      record.userId === input.userId
+    ) {
+      cursor.delete();
+    }
+
+    cursor.continue();
+  };
 }
 
 /** 측정점을 버퍼에 넣는다. 같은 키가 이미 있으면 덮어쓴다(같은 점을 다시 만든 경우다). */
@@ -393,25 +441,49 @@ export async function writeFinishIntent(intent: FinishIntent): Promise<void> {
 }
 
 /**
- * 한 세션의 로컬 자취를 전부 지운다.
+ * 한 세션의 로컬 자취를 **전부** 지운다 — 위 (A) 의 ① · ② 에서만 부른다(#171 · D11 2차).
+ * 시간이 지났다고, 로그아웃했다고 부르지 않는다.
  *
- * **위 「삭제는 네 가지뿐」의 ① · ③ · ④ 에서만 부른다.** 시간이 지났다고, 로그아웃했다고
- * 부르지 않는다.
+ * **「전부」가 세 가지 모두이고 모든 generation 이다.** (A) 는 「session 전체 durable state」라
+ * 서, point-stream(측정점 + tombstone) · finish intent · **tracker record** 셋을 그 세션의 어느
+ * generation 것이든 지운다. 옛 구현은 인자로 받은 generation 하나의 point-stream 만 지워서,
+ * D14 takeover 를 거친 세션의 옛 generation 버퍼 · tombstone 과 tracker record 가 `saved` 뒤에도
+ * 기기에 남았다.
+ *
+ * **남의 것은 지우지 않는다.** 세 갈래 모두 `userId` 가 맞을 때만 지운다 — 같은 기기를 두
+ * 사람이 쓸 수 있고, D11 은 다른 소유자의 레코드를 「원 소유자의 재로그인 복구를 위해 임의로
+ * 삭제하지 않는다」고 못박았다.
+ *
+ * **세 갈래를 각각 시도한다.** 하나가 실패해도 나머지는 지운다 — 「전부」가 계약이라 첫 실패로
+ * 멈추면 계약보다 좁아진다. 실패가 있었으면 그대로 던져서 호출부가 알 수 있게 한다.
  */
 export async function deleteRunData(input: {
   userId: string;
   sessionId: string;
-  trackerGeneration: number;
+  /**
+   * 호출부가 알고 있는 현재 generation. **이 값으로 범위를 좁히지 않는다** — (A) 는 세션
+   * 전체다. 호출부 계약을 깨지 않으려고 받아만 두고 쓰지 않는다.
+   */
+  trackerGeneration?: number;
 }): Promise<void> {
-  const mine = await readFinishIntent(input);
+  const { userId, sessionId } = input;
 
-  await withTransaction(STORES.points, "readwrite", (store) => {
-    store.delete(generationRange(input));
-  });
+  const mine = await readFinishIntent({ userId, sessionId }).catch(() => null);
 
-  if (mine) {
-    await withStore(STORES.finishIntent, "readwrite", (store) =>
-      store.delete(input.sessionId),
-    );
-  }
+  const settled = await Promise.allSettled([
+    withTransaction(STORES.points, "readwrite", (store) => {
+      deleteSessionRecordsOwnedBy(store, { userId, sessionId });
+    }),
+    mine
+      ? withStore(STORES.finishIntent, "readwrite", (store) =>
+          store.delete(sessionId),
+        )
+      : Promise.resolve(),
+    deleteTrackerRecordForSession({ userId, sessionId }),
+  ]);
+
+  const failed = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failed) throw failed.reason;
 }
