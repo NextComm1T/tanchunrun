@@ -80,12 +80,6 @@
    * 경로 선은 Zone 안이면 --color-primary, 밖이면 --color-route-out 을 쓴다.
    */
   --color-map-base: #faf6ec; /* 지도 바탕 (L12) */
-  --color-map-block: #efe8d8; /* 건물 블록 (L13) */
-  --color-map-road: #e4dccb; /* 도로 (L23) */
-  --color-map-park: #cde9bc; /* 공원 (L29) */
-  --color-map-water: #bbd9f5; /* 하천 (L31) */
-  --color-map-water-edge: #a7c9ec;
-  --color-map-label: #3e7bb8; /* 하천 이름 라벨 */
   --color-route-out: #a7a9ae; /* Zone 밖 경로 (L89) */
   --color-gps-lost: #b4bcc8; /* GPS 유실 마커 (L105) */
 

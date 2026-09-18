@@ -202,7 +202,10 @@ Tailwind 유틸로 바로 쓴다 — `bg-surface` · `text-muted` · `rounded-xl
 | 랭킹 1·2·3위 | `text-rank-gold` `-silver` `-bronze` | — |
 | 지도 | `bg-map-base` · `stroke-route-out` · `fill-gps-lost` | 타일 바탕 · Zone 밖 경로 · 신호 유실 마커 |
 
-**일러스트 지도 전용이던 토큰**(`map-block` · `map-road` · `map-park` · `map-water` · `map-water-edge` · `map-label`)은 #86 의 legacy 삭제로 **쓰는 곳이 0** 이 됐다. `globals.css` 는 전원이 공유하는 파일이라 이 Issue 에서 지우지 않았다 — 정리는 팀에 말한 뒤 따로 한다.
+**일러스트 지도 전용이던 토큰**(`map-block` · `map-road` · `map-park` · `map-water` · `map-water-edge` ·
+`map-label`)은 #86 의 legacy 삭제로 쓰는 곳이 0 이 됐고, **#174 에서 `globals.css` 에서 제거했다.**
+남은 지도 토큰은 위 표의 세 개뿐이다 — `bg-map-base` · `stroke-route-out` · `fill-gps-lost` 는
+`NaverTancheonMap` 이 지금도 쓴다.
 
 전체 목록은 [globals.css](../src/app/globals.css) 에 있고, 값마다 디자인 원본 줄 번호가 주석으로 달려 있다.
 
