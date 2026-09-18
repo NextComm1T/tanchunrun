@@ -108,6 +108,40 @@ export async function withTransaction(
 }
 
 /**
+ * 여러 store 를 **한 트랜잭션 안에서** 함께 쓴다(#164 · D11 2차).
+ *
+ * `withTransaction` 은 callback 에 store 하나만 넘겨서 두 store 를 같이 쓸 수 없다. 그렇다고
+ * 첫 인자만 배열로 넓혀도 callback 이 나머지 store 를 얻을 방법이 없어, **별도 helper 로 둔다.**
+ * 기존 단일-store 호출부는 그대로다.
+ *
+ * **왜 한 트랜잭션이어야 하나** — `past` 로 영영 거절된 점은 측정점을 tombstone 으로 바꾸고
+ * 종료 의사의 `lastRawSeq` 도 함께 낮춰야 하는데, 이 둘을 따로 커밋하면 사이에 탭이 죽었을 때
+ * **근거만 있고 종료 번호는 옛 값**이거나 그 반대가 된다. IndexedDB 는 store 여러 개를 한
+ * 트랜잭션으로 열 수 있으므로 쪼갤 이유가 없다.
+ */
+export async function withStoresTransaction(
+  stores: readonly StoreName[],
+  mode: IDBTransactionMode,
+  run: (getStore: (name: StoreName) => IDBObjectStore) => void,
+): Promise<void> {
+  const db = await openDb();
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([...stores], mode);
+
+      run((name) => tx.objectStore(name));
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * 저장소가 비워지지 않도록 요청한다(best-effort · D11).
  *
  * **실패하거나 지원하지 않아도 러닝을 실패시키지 않는다.** 저장소 증발은 보장을 걸 수 없는

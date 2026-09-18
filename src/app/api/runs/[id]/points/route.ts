@@ -9,6 +9,7 @@ import {
   POINTS_MAX_BODY_BYTES,
   POINTS_MAX_PER_REQUEST,
 } from "@/server/runs/policy";
+import type { ClockBound } from "@/server/runs/recordedAtRange";
 
 /** Node.js runtime 이 필요하다 — `node:crypto`(token 해시)와 `pg` 를 쓴다. */
 export const runtime = "nodejs";
@@ -22,7 +23,18 @@ export const dynamic = "force-dynamic";
  * 응답 · 로그 어디에도 남기지 않고, 문제가 있으면 **어느 `rawSeq` 인지만** 알려 준다.
  */
 
-type ErrorBody = { error: string; rawSeq?: number };
+/**
+ * 오류 응답 본문.
+ *
+ * `bound` 는 `invalid_recorded_at` 에만 붙는다(D11 2차) — client 가 그 점을 **영영 버릴지
+ * (`past`) 나중에 다시 보낼지(`future`)** 정하는 근거라, 없으면 client 가 둘을 구분할 수
+ * 없어 저장될 수 있는 점까지 버린다. 좌표 · 시각 값은 여전히 담지 않는다.
+ */
+type ErrorBody = {
+  error: string;
+  rawSeq?: number;
+  bound?: ClockBound;
+};
 
 function fail(status: number, body: ErrorBody, headers?: HeadersInit) {
   return Response.json(body, { status, headers });
@@ -180,6 +192,7 @@ export async function POST(
       return fail(400, {
         error: "invalid_recorded_at",
         rawSeq: outcome.rawSeq,
+        bound: outcome.bound,
       });
     case "rate_limited":
       return fail(

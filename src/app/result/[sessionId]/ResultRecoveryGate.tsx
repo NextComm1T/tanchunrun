@@ -5,12 +5,11 @@ import { useRouter } from "next/navigation";
 
 import {
   deleteAckedPoints,
-  deleteBufferedPoint,
   deleteRunData,
   finishLastRawSeq,
+  markTerminalRawSeq,
   readBufferedPoints,
   readFinishIntent,
-  writeFinishIntent,
   type FinishIntent,
 } from "@/client/runBuffer";
 
@@ -84,18 +83,34 @@ export function ResultRecoveryGate({
   }, []);
 
   /**
+   * flush 결과. 종료로 넘어가도 되는지를 **호출부가 헷갈리지 않게** 한 값으로 말한다.
+   *
+   * - `ready` — 더 밀 것이 없거나, 남은 실패는 `finishRun` 이 정확히 알려 줄 종류다
+   * - `deferred` — 서버 시각이 아직 따라오지 않았다(`bound = future`). **이번 회차에는 종료를
+   *   부르지 않는다** — 불러 봐야 `points_missing` 을 받고 finish bucket 만 쓴다
+   */
+  type FlushResult =
+    | { kind: "ready"; intent: FinishIntent }
+    | { kind: "deferred"; intent: FinishIntent };
+
+  /**
    * 아직 서버로 못 올린 점을 먼저 밀어 넣는다. **실패해도 여기서 멈춘다** — `finishRun` 이
    * 부족한 점을 `points_missing` 으로 정확히 알려 주므로, flush 실패를 별도로 판정하지
    * 않는다.
    *
-   * 예외가 하나 있다(#145) — 서버가 시각 범위 밖이라고 돌려준 점은 **다시 보내도 영영 거절**
-   * 당한다. 그 점만 버리고 계속 가되, 종료 의사의 `lastRawSeq` 도 빈 자리 앞까지로 낮춰
-   * durable 하게 다시 남긴다. 그러지 않으면 완전성 검사가 영영 `points_missing` 이다.
+   * 예외가 둘 있다(#145 · #164 · D11 2차). 서버가 시각 범위 밖이라고 돌려준 점인데, **경계마다
+   * 성질이 다르다.**
+   *
+   * - `past` — `started_at` 이 고정이라 다시 보내도 영영 거절된다. 그 점을 **tombstone 으로
+   *   바꾸고 종료 의사의 `lastRawSeq` 도 빈 자리 앞까지 낮춘다. 둘을 한 트랜잭션에서** 쓴다 —
+   *   따로 커밋하면 사이에 탭이 죽었을 때 근거와 번호가 어긋난다
+   * - `future` — 서버 시각이 흐르면 통과할 수 있다. **점을 버리지 않고 intent 도 건드리지 않으며**
+   *   `deferred` 로 빠져 상위 백오프에 맡긴다
    *
    * 갱신된 intent 를 돌려주므로 호출부는 **그 값으로** 종료를 요청한다.
    */
   const flushBuffered = useCallback(
-    async (intent: FinishIntent): Promise<FinishIntent> => {
+    async (intent: FinishIntent): Promise<FlushResult> => {
       let current = intent;
 
       for (;;) {
@@ -104,7 +119,7 @@ export function ResultRecoveryGate({
           sessionId,
           trackerGeneration: current.trackerGeneration,
         });
-        if (buffered.length === 0) return current;
+        if (buffered.length === 0) return { kind: "ready", intent: current };
 
         const batch = buffered.slice(0, FLUSH_BATCH);
         const response = await fetch(`/api/runs/${sessionId}/points`, {
@@ -128,30 +143,44 @@ export function ResultRecoveryGate({
           const body = (await response.json().catch(() => null)) as {
             error?: string;
             rawSeq?: number;
+            /** `invalid_recorded_at` 일 때만 온다(D11 2차). 없으면 terminal 로 보지 않는다. */
+            bound?: "past" | "future";
           } | null;
 
-          // 영영 거절당할 점 하나 때문에 러닝 전체가 멈추지 않게 한다(#145).
           if (
             body?.error === "invalid_recorded_at" &&
             typeof body.rawSeq === "number"
           ) {
-            await deleteBufferedPoint({
-              sessionId,
-              trackerGeneration: current.trackerGeneration,
-              rawSeq: body.rawSeq,
-            });
+            if (body.bound === "future") {
+              return { kind: "deferred", intent: current };
+            }
 
             const lastRawSeq = finishLastRawSeq(current.lastRawSeq + 1, [
               body.rawSeq,
             ]);
-            if (lastRawSeq !== current.lastRawSeq) {
-              current = { ...current, lastRawSeq };
-              await writeFinishIntent(current);
-            }
+            const lowered =
+              lastRawSeq === current.lastRawSeq
+                ? undefined
+                : { ...current, lastRawSeq };
+
+            /*
+              빈 자리 표시와 낮춘 종료 번호를 **한 번에** 쓴다(#164). 나눠 쓰면 그 사이에 탭이
+              죽었을 때 한쪽만 남아, 다시 열었을 때 근거 없이 낮아진 번호를 믿거나 근거를 두고도
+              옛 번호로 종료를 시도하게 된다.
+            */
+            await markTerminalRawSeq({
+              userId,
+              sessionId,
+              trackerGeneration: current.trackerGeneration,
+              rawSeq: body.rawSeq,
+              finishIntent: lowered,
+            });
+
+            if (lowered) current = lowered;
             continue;
           }
 
-          return current;
+          return { kind: "ready", intent: current };
         }
 
         const { ackThroughRawSeq } = (await response.json()) as {
@@ -164,7 +193,9 @@ export function ResultRecoveryGate({
           ackThroughRawSeq,
         });
 
-        if (buffered.length <= batch.length) return current;
+        if (buffered.length <= batch.length) {
+          return { kind: "ready", intent: current };
+        }
       }
     },
     [sessionId, userId],
@@ -191,14 +222,27 @@ export function ResultRecoveryGate({
       // flush 중에 영영 거절당한 점이 나오면 `lastRawSeq` 가 낮아진 intent 가 돌아온다(#145).
       const flushed = await flushBuffered(intent);
 
+      /*
+        아직 서버 시각이 따라오지 않았다(`bound = future` · #164). **종료를 부르지 않고** 물러난다 —
+        지금 부르면 `points_missing` 을 받고 finish bucket 만 쓴다. 기기 시계가 앞선 것뿐이라
+        시간이 지나면 같은 점이 그대로 올라간다.
+      */
+      if (flushed.kind === "deferred") {
+        if (!mountedRef.current) return;
+        setPhase("error");
+        setMessage("아직 저장하지 못했어요. 연결을 확인하고 다시 시도해주세요.");
+        scheduleRetry(() => void runFromIntent());
+        return;
+      }
+
       const response = await fetch(`/api/runs/${sessionId}/finish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          trackerToken: flushed.trackerToken,
-          trackerGeneration: flushed.trackerGeneration,
-          clientFinishedAt: flushed.clientFinishedAt,
-          lastRawSeq: flushed.lastRawSeq,
+          trackerToken: flushed.intent.trackerToken,
+          trackerGeneration: flushed.intent.trackerGeneration,
+          clientFinishedAt: flushed.intent.clientFinishedAt,
+          lastRawSeq: flushed.intent.lastRawSeq,
         }),
       });
 
