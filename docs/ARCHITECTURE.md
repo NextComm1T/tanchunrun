@@ -319,4 +319,3 @@ MVP 는 **Web-only Next.js** 다. native wrapper · background location 은 MVP 
 - **MVP Gate 실측** — 실제 OAuth · GPS 로 연속 시나리오 · 실패 A/B · 다기기 · 탈퇴 삭제를 아직 돌리지 않았다(#89). 절차와 현재 판정은 [modify/2026-09-17-mvp-backend-gate.md](../modify/2026-09-17-mvp-backend-gate.md).
 - **화면 테스트 러너** — `npm test`(Vitest)는 `src/**/*.test.ts` 의 **순수 함수**만 돈다(D12 2차). `src/app` 과 DB 를 거치는 경로의 검증은 lint · build · 브라우저 확인뿐이다.
 - **native 앱 · 백그라운드 측정** — 위 「플랫폼 제약」.
-- **branch protection** — `main` · `develop` 에 ruleset 이 없어 「직접 push 금지」가 문서로만 지켜진다(#118 · admin 권한이 필요해 보류).
