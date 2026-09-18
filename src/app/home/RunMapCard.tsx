@@ -8,11 +8,17 @@ import {
 } from "@/components/shared/NaverTancheonMap";
 import { TANCHEON_ZONE } from "@/domain/measure";
 
-import { GPS_NOTICE, START_BUTTON_LABEL } from "./gps";
+import {
+  GPS_CHECKING_STALL_NOTICE,
+  GPS_NOTICE,
+  START_BUTTON_LABEL,
+} from "./gps";
 import type { GeolocationReadyState } from "./useGeolocationReady";
 
 type RunMapCardProps = {
   gps: GeolocationReadyState;
+  /** 확인이 오래 끌고 있다(#190). `gps` 가 `checking` 일 때만 참이다. */
+  gpsStalled?: boolean;
   /** 러닝을 시작하지 못한 이유. `startRun` 이 실패했을 때만 값이 있다. */
   startError?: string | null;
   /** 첫 측위(#81). `gps` 가 `ready` 일 때만 값이 있고, 그때만 내 위치를 찍는다. */
@@ -50,12 +56,18 @@ const NOTICE_ACTION =
  */
 export function RunMapCard({
   gps,
+  gpsStalled = false,
   startError,
   position,
   onStart,
   onRetryGps,
 }: RunMapCardProps) {
   const isReady = gps === "ready";
+  /*
+    훅이 이미 `checking` 에서만 참으로 주지만(#190), 아래 분기가 그 전제에 기대므로 여기서도
+    묶어 둔다 — `denied` · `unavailable` 안내 위에 멈춤 줄이 겹칠 자리를 애초에 없앤다.
+  */
+  const checkingStalled = gps === "checking" && gpsStalled;
 
   /*
     확대 단계는 이제 지도 인스턴스가 쥔다(NAVER zoom level). 예전에는 화면이 배율에서
@@ -175,9 +187,17 @@ export function RunMapCard({
           보낸다. 측위 실패는 자리를 옮기면 풀릴 수 있으므로 「다시 확인」으로 다시 잰다 —
           안내만 두면 새로고침 말고는 빠져나갈 길이 없다.
 
-          연타 · 중복 요청은 따로 막지 않는다. 이 버튼은 `unavailable` 에서만 그려지는데
-          그 상태는 직전 요청이 이미 끝났다는 뜻이고, 누르는 순간 `checking` 으로 돌아가며
-          버튼 자체가 사라진다.
+          `checking` 에는 원래 액션이 없다 — 정상 경로에서도 잠깐 지나가는 상태라, 늘 버튼을
+          두면 기다리면 되는 일을 고장처럼 보이게 한다. 다만 확인이 끝나지 않는 경로가 있어서
+          (#190 · `useGeolocationReady` 의 `CHECKING_STALL_MS`) 임계를 넘기면 같은 탈출구를 연다.
+          그때도 **두 줄은 그대로 두고 아래에 한 줄을 덧붙인다** — 확인이 *실패*한 것이 아니라
+          아직 끝나지 않은 것이라, 헤드라인을 오류 문구로 바꾸면 실제보다 나쁘게 보인다.
+
+          연타 · 중복 요청은 따로 막지 않는다. `unavailable` 에서는 직전 요청이 이미 끝났고,
+          멈춤에서는 아직 살아 있는 `getCurrentPosition` 위로 다시 부르게 되지만 — 어느 쪽이든
+          `attempt` 가 바뀌면 이전 effect 의 `cancelled` 가 옛 요청의 `setState` 를 막는다
+          (`useGeolocationReady.ts` 의 `cancelled` 세 자리). 브라우저도 미결 권한 창 위에 두 번째
+          창을 띄우지는 않는다.
         */}
         {isReady ? null : (
           <div className="absolute inset-0 z-[6] flex items-center justify-center bg-foreground/26 p-[26px]">
@@ -191,11 +211,23 @@ export function RunMapCard({
                 {GPS_NOTICE[gps][1]}
               </p>
 
+              {/* 헤드라인의 `role` 은 건드리지 않는다 — 거기에 손대면 모든 사용자가 최초
+                  `checking` 렌더에서 경고를 듣는다. 새로 더한 이 줄에만 붙인다. */}
+              {checkingStalled ? (
+                <p
+                  role="alert"
+                  // `break-keep` 이 없으면 좁은 폭에서 어절 중간이 끊긴다(320px 확인).
+                  className="mt-2.5 text-sm leading-[1.5] font-semibold break-keep text-subtle"
+                >
+                  {GPS_CHECKING_STALL_NOTICE}
+                </p>
+              ) : null}
+
               {gps === "denied" ? (
                 <Link href="/settings/location" className={NOTICE_ACTION}>
                   위치정보 설정 보기
                 </Link>
-              ) : gps === "unavailable" ? (
+              ) : gps === "unavailable" || checkingStalled ? (
                 <button
                   type="button"
                   onClick={onRetryGps}
