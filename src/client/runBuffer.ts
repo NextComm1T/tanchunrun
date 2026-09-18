@@ -452,10 +452,12 @@ export async function writeFinishIntent(intent: FinishIntent): Promise<void> {
  *
  * **남의 것은 지우지 않는다.** 세 갈래 모두 `userId` 가 맞을 때만 지운다 — 같은 기기를 두
  * 사람이 쓸 수 있고, D11 은 다른 소유자의 레코드를 「원 소유자의 재로그인 복구를 위해 임의로
- * 삭제하지 않는다」고 못박았다.
+ * 삭제하지 않는다」고 못박았다. **소유자 확인은 지우는 트랜잭션 안에서 한다** — 읽고 나서
+ * 따로 지우면 그 사이에 다른 러닝이 같은 키를 덮어써도 옛 판정으로 지운다(#191).
  *
  * **세 갈래를 각각 시도한다.** 하나가 실패해도 나머지는 지운다 — 「전부」가 계약이라 첫 실패로
  * 멈추면 계약보다 좁아진다. 실패가 있었으면 그대로 던져서 호출부가 알 수 있게 한다.
+ * **읽기 실패를 삼키지 않는다** — 삼키면 지우지 못한 갈래가 성공으로 보고된다.
  */
 export async function deleteRunData(input: {
   userId: string;
@@ -468,17 +470,21 @@ export async function deleteRunData(input: {
 }): Promise<void> {
   const { userId, sessionId } = input;
 
-  const mine = await readFinishIntent({ userId, sessionId }).catch(() => null);
-
   const settled = await Promise.allSettled([
     withTransaction(STORES.points, "readwrite", (store) => {
       deleteSessionRecordsOwnedBy(store, { userId, sessionId });
     }),
-    mine
-      ? withStore(STORES.finishIntent, "readwrite", (store) =>
-          store.delete(sessionId),
-        )
-      : Promise.resolve(),
+    withTransaction(STORES.finishIntent, "readwrite", (store) => {
+      const request = store.get(sessionId);
+
+      request.onsuccess = () => {
+        const stored: unknown = request.result;
+        if (typeof stored !== "object" || stored === null) return;
+        if ((stored as Partial<FinishIntent>).userId !== userId) return;
+
+        store.delete(sessionId);
+      };
+    }),
     deleteTrackerRecordForSession({ userId, sessionId }),
   ]);
 
