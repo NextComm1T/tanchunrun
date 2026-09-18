@@ -56,9 +56,16 @@ src/
 
 | 폴더 | 무엇 | 규칙 |
 | --- | --- | --- |
-| `src/domain` | 프레임워크와 무관한 순수 TS. 계산 · 규칙 | React · Next · DB · env 를 import 하지 않는다. `npm test` 대상은 여기뿐이다 |
-| `src/server` | 서버에서만 도는 코드. DB · 인증 · secret | 브라우저로 새어 나가면 안 된다 |
+| `src/domain` | 프레임워크와 무관한 순수 TS. 계산 · 규칙 | React · Next · DB · env 를 import 하지 않는다 |
+| `src/server` | 서버에서만 도는 코드. DB · 인증 · secret | 브라우저로 새어 나가면 안 된다. 순수 규칙만 `server-only` 없는 모듈로 떼어 내면 그 모듈은 테스트할 수 있다 |
 | `src/client` | 브라우저에서만 도는 공용 모듈. IndexedDB · 외부 SDK | 여러 화면이 쓰는 것만. 한 화면 것은 화면 폴더에 |
+
+**`npm test` 대상은 폴더가 아니라 성격으로 정해진다**(#78 D12 2차). 범위는 `src/**/*.test.ts` 이고,
+화면 · DOM · DB · 네트워크 · cookie 없이 **값만으로 판정되는 순수 함수**만 돈다. 경로가 `src/server`
+여도 그 조건을 채우면 대상이고(`db/sqlstate.ts` · `ranking/rank.ts` · `runs/ack.ts` ·
+`runs/bodyLimit.ts` · `runs/recordedAtRange.ts` — 전부 `import "server-only"` 가 없는 값 계산 모듈이다),
+`src/domain` 이어도 못 채우면 대상이 아니다. 규칙을 테스트하고 싶으면 **그 규칙만 떼어 낸다** —
+`server-only` 를 통째로 떼는 것이 아니라 값 계산만 분리하고 DB · cookie 를 쓰는 쪽은 그대로 둔다.
 
 **import 방향은 한쪽뿐이다.**
 
