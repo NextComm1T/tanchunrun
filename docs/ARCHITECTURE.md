@@ -56,9 +56,16 @@ src/
 
 | 폴더 | 무엇 | 규칙 |
 | --- | --- | --- |
-| `src/domain` | 프레임워크와 무관한 순수 TS. 계산 · 규칙 | React · Next · DB · env 를 import 하지 않는다. `npm test` 대상은 여기뿐이다 |
-| `src/server` | 서버에서만 도는 코드. DB · 인증 · secret | 브라우저로 새어 나가면 안 된다 |
+| `src/domain` | 프레임워크와 무관한 순수 TS. 계산 · 규칙 | React · Next · DB · env 를 import 하지 않는다 |
+| `src/server` | 서버에서만 도는 코드. DB · 인증 · secret | 브라우저로 새어 나가면 안 된다. 순수 규칙만 `server-only` 없는 모듈로 떼어 내면 그 모듈은 테스트할 수 있다 |
 | `src/client` | 브라우저에서만 도는 공용 모듈. IndexedDB · 외부 SDK | 여러 화면이 쓰는 것만. 한 화면 것은 화면 폴더에 |
+
+**`npm test` 대상은 폴더가 아니라 성격으로 정해진다**(#78 D12 2차). 범위는 `src/**/*.test.ts` 이고,
+화면 · DOM · DB · 네트워크 · cookie 없이 **값만으로 판정되는 순수 함수**만 돈다. 경로가 `src/server`
+여도 그 조건을 채우면 대상이고(`db/sqlstate.ts` · `ranking/rank.ts` · `runs/ack.ts` ·
+`runs/bodyLimit.ts` · `runs/recordedAtRange.ts` — 전부 `import "server-only"` 가 없는 값 계산 모듈이다),
+`src/domain` 이어도 못 채우면 대상이 아니다. 규칙을 테스트하고 싶으면 **그 규칙만 떼어 낸다** —
+`server-only` 를 통째로 떼는 것이 아니라 값 계산만 분리하고 DB · cookie 를 쓰는 쪽은 그대로 둔다.
 
 **import 방향은 한쪽뿐이다.**
 
@@ -195,7 +202,10 @@ Tailwind 유틸로 바로 쓴다 — `bg-surface` · `text-muted` · `rounded-xl
 | 랭킹 1·2·3위 | `text-rank-gold` `-silver` `-bronze` | — |
 | 지도 | `bg-map-base` · `stroke-route-out` · `fill-gps-lost` | 타일 바탕 · Zone 밖 경로 · 신호 유실 마커 |
 
-**일러스트 지도 전용이던 토큰**(`map-block` · `map-road` · `map-park` · `map-water` · `map-water-edge` · `map-label`)은 #86 의 legacy 삭제로 **쓰는 곳이 0** 이 됐다. `globals.css` 는 전원이 공유하는 파일이라 이 Issue 에서 지우지 않았다 — 정리는 팀에 말한 뒤 따로 한다.
+**일러스트 지도 전용이던 토큰**(`map-block` · `map-road` · `map-park` · `map-water` · `map-water-edge` ·
+`map-label`)은 #86 의 legacy 삭제로 쓰는 곳이 0 이 됐고, **#174 에서 `globals.css` 에서 제거했다.**
+남은 지도 토큰은 위 표의 세 개뿐이다 — `bg-map-base` · `stroke-route-out` · `fill-gps-lost` 는
+`NaverTancheonMap` 이 지금도 쓴다.
 
 전체 목록은 [globals.css](../src/app/globals.css) 에 있고, 값마다 디자인 원본 줄 번호가 주석으로 달려 있다.
 
