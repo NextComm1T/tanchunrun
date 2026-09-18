@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { FirstFix } from "@/server/runs/actions";
 
@@ -83,6 +83,15 @@ export function useGeolocationReady(): GeolocationReady {
   const [firstFix, setFirstFix] = useState<FirstFix | null>(null);
   const [attempt, setAttempt] = useState(0);
 
+  /*
+    권한 변경 핸들러가 "지금 막혀 있는가"를 읽어야 한다. 핸들러는 구독할 때의 렌더에 묶여
+    있어서 `state` 를 그대로 읽으면 옛 값을 본다. 렌더에는 쓰지 않는 거울 값이다.
+  */
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -131,6 +140,80 @@ export function useGeolocationReady(): GeolocationReady {
     setFirstFix(null);
     setAttempt((n) => n + 1);
   }, []);
+
+  /*
+    권한은 이 화면 밖에서 바뀐다 — 브라우저 · OS 설정, 그리고 설정 > 위치정보 화면(#124).
+    위 effect 는 마운트와 `retry()` 때만 도므로, 그것만으로는 거부를 풀고 돌아와도 새로고침
+    전까지 막힌 채로 남고 반대로 권한을 끈 뒤에도 시작 가능으로 보인다(#152).
+
+    `status.onchange` 를 구독하고, 그 구독이 조용히 걸리지 않는 경우(탭이 오래 백그라운드에
+    있었거나 OS 수준 설정을 거친 경우)를 대비해 탭이 다시 보이거나 창이 focus 를 되찾을 때
+    한 번 더 조회한다 — 설정 화면의 `useLocationPermission` 과 같은 방식이다.
+
+    Permissions API 가 없는 브라우저(Safari 일부)는 `status` 가 없어 그대로 넘어가므로
+    지금 동작 그대로다.
+  */
+  useEffect(() => {
+    let cancelled = false;
+    /** `onchange` 를 붙인 status. 정리할 때 떼려고 들고 있는다. */
+    let watched: PermissionStatus | undefined;
+
+    function apply(permission: PermissionState) {
+      if (cancelled) return;
+
+      if (permission === "denied") {
+        // 이미 확보한 좌표로는 시작할 수 없다. 버리지 않으면 시작 버튼이 살아 있다.
+        setFirstFix(null);
+        setState("denied");
+        return;
+      }
+
+      /*
+        허용(`granted`)이나 미결정(`prompt`)으로 풀렸을 때 **막혀 있던 화면만** 첫 측위를
+        다시 시작한다. `unavailable` 은 권한이 아니라 신호 문제라 「다시 확인」(#119) 몫이고,
+        `ready` · `checking` 에서 다시 재면 끝났거나 도는 중인 측위를 헛돌린다 — 마운트 때
+        프롬프트를 수락하면 `prompt → granted` 변경이 곧바로 오는데 그게 이 경우다.
+      */
+      if (stateRef.current === "denied") retry();
+    }
+
+    /*
+      상태 변경은 전부 await 뒤에서 일어난다(위 effect 와 같은 이유 —
+      react-hooks/set-state-in-effect).
+    */
+    async function sync() {
+      if (!("geolocation" in navigator)) return;
+      // 백그라운드 탭에서는 확인하지 않는다. 다시 보일 때 `visibilitychange` 가 부른다.
+      if (document.visibilityState === "hidden") return;
+
+      try {
+        const status = await navigator.permissions?.query({
+          name: "geolocation",
+        });
+        if (!status || cancelled) return;
+
+        // 조회할 때마다 새 status 가 온다. 이전 구독을 떼고 최신 것에 붙인다.
+        if (watched) watched.onchange = null;
+        watched = status;
+        status.onchange = () => apply(status.state);
+
+        apply(status.state);
+      } catch {
+        // 조용히 넘어간다 — 이미 보여 준 상태를 그대로 둔다. 다시 재는 것은 `retry()` 몫이다.
+      }
+    }
+
+    void sync();
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+
+    return () => {
+      cancelled = true;
+      if (watched) watched.onchange = null;
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+    };
+  }, [retry]);
 
   return { state, firstFix, retry };
 }
