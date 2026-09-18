@@ -354,6 +354,26 @@ export function ResultRecoveryGate({
         throw new Error("finalization_failed");
       }
 
+      /*
+        `404 not_found` 는 **다시 해도 결과가 같다**(#192). 서버가 이 응답을 주는 조건은 세션이
+        없거나 이미 `saved` 인 경우다(`retryFinalization`) — 어느 쪽이든 이 기기가 tx2 를 다시
+        불러 성공할 일이 없다. 그래서 백오프를 멈춘다. 그냥 두면 이미 저장된 러닝을 두고
+        「아직 저장하지 못했어요」를 띄운 채 영원히 재시도한다.
+
+        permanent 404 는 D11 2차가 정한 (A) permanent cleanup 사유 ②다. 세션 전체 로컬 자취를
+        지우고 나서 서버에 다시 묻는다.
+
+        **어느 쪽 404 인지 화면이 가려내지 않는다.** `router.refresh()` 가 server component 를
+        다시 돌리므로 저장됐으면 결과가 그려지고, 세션이 없으면 `page.tsx` 가 `notFound()` 한다.
+      */
+      if (response.status === 404) {
+        // 정리가 실패해도 `refresh` 는 한다(:266 과 같은 처분) — 로컬 삭제 실패로 사용자를 이
+        // 화면에 가두지 않는다. 서버는 이미 이 세션의 tx2 를 받지 않는다.
+        await deleteRunData({ userId, sessionId }).catch(() => undefined);
+        router.refresh();
+        return;
+      }
+
       if (response.status === 429) {
         const retryAfterSec = Number(response.headers.get("Retry-After"));
         if (!mountedRef.current) return;
@@ -377,7 +397,7 @@ export function ResultRecoveryGate({
     } finally {
       inFlightRef.current = false;
     }
-  }, [router, scheduleRetry, sessionId]);
+  }, [router, scheduleRetry, sessionId, userId]);
 
   const run = serverState === "active" ? runFromIntent : runRetryFinalization;
 
