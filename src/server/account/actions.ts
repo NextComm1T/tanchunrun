@@ -112,7 +112,7 @@ export async function updateNickname(
  * 쿠키 삭제로 보호한다. 화면의 2단계(안내 화면 + 확인 모달)는 그대로 둔다.
  *
  * **기기 IndexedDB 정리는 여기서 하지 않는다.** 서버는 브라우저 저장소에 닿을 수 없어서,
- * 성공을 받은 화면이 `deleteLocalDataForUser()` 로 이어서 한다(D11 permanent cleanup ④).
+ * 성공을 받은 화면이 `deleteLocalDataForUser()` 로 이어서 한다(D11 (A)③).
  */
 export async function withdraw(): Promise<
   { ok: true } | { ok: false; error: WithdrawError }
