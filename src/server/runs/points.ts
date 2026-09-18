@@ -14,6 +14,7 @@ import {
   pointsBucketCost,
 } from "./policy";
 import { consumeUserTokens } from "./rateLimit";
+import { firstOutOfRange, type ClockBound } from "./recordedAtRange";
 import { hashTrackerToken } from "./tracker";
 
 /**
@@ -87,12 +88,21 @@ export type AppendPointsOutcome =
   /** token 은 맞지만 다른 기기가 인수해 갔다(D14). client 는 read-only 로 돌아간다. */
   | { ok: false; error: "tracker_superseded" }
   | { ok: false; error: "point_conflict"; rawSeq: number }
-  | { ok: false; error: "invalid_recorded_at"; rawSeq: number }
+  /**
+   * 시각이 범위 밖이다. **`bound` 를 함께 준다**(D11 2차) — client 가 이 점을 영영 버릴지
+   * (`past`) 나중에 다시 보낼지(`future`) 정하는 근거다.
+   */
+  | {
+      ok: false;
+      error: "invalid_recorded_at";
+      rawSeq: number;
+      bound: ClockBound;
+    }
   | { ok: false; error: "rate_limited"; retryAfterSec: number }
   | { ok: false; error: "failed" };
 
 /**
- * `recordedAt` 이 받아들일 범위 안인가.
+ * 이 배치에서 처음 범위를 벗어난 점과 **어느 경계인지**.
  *
  * 양쪽 다 **대칭으로 60초**를 준다(#145). 기기 시계가 서버보다 늦거나, OS 가 시작 직전에 잡은
  * fix 를 그대로 주는 일이 흔해서 「시작 이전은 전부 거절」이면 정상 러닝이 통째로 막혔다 —
@@ -100,19 +110,20 @@ export type AppendPointsOutcome =
  *
  * 범위를 벗어나면 **clamp 하지 않고 거절한다** — 값을 고쳐 받으면 구간 시간이 달라져 끊김
  * 판정(D10)과 속도 제외(P9)가 조용히 틀어진다.
+ *
+ * **두 경계의 성질이 다르다**(D11 2차) — `started_at` 하한은 고정이라 영구 거절이지만 수신 시각
+ * 상한은 서버 시각이 흐르면 통과할 수 있다. 그래서 어느 쪽인지 함께 돌려준다. 판정 자체는
+ * `recordedAtRange.ts` 의 순수 함수가 하고 여기서는 경계값만 계산한다.
  */
 function outOfRangePoint(
   points: readonly IncomingPoint[],
   startedAt: Date,
   now: Date,
-): IncomingPoint | null {
-  const earliest = startedAt.getTime() - PAST_CLOCK_TOLERANCE_MS;
-  const latest = now.getTime() + FUTURE_CLOCK_TOLERANCE_MS;
-
-  return (
-    points.find(
-      (point) => point.recordedAt < earliest || point.recordedAt > latest,
-    ) ?? null
+): { rawSeq: number; bound: ClockBound } | null {
+  return firstOutOfRange(
+    points,
+    startedAt.getTime() - PAST_CLOCK_TOLERANCE_MS,
+    now.getTime() + FUTURE_CLOCK_TOLERANCE_MS,
   );
 }
 
@@ -183,6 +194,7 @@ export async function appendPoints(
           ok: false,
           error: "invalid_recorded_at",
           rawSeq: invalid.rawSeq,
+          bound: invalid.bound,
         };
       }
 

@@ -6,10 +6,12 @@ import {
   bufferPoints,
   deleteAckedPoints,
   deleteBufferedPoint,
-  maxBufferedRawSeq,
-  readBufferedPoints,
   finishLastRawSeq,
+  markTerminalRawSeq,
+  maxKnownRawSeq,
+  readBufferedPoints,
   readFinishIntent,
+  readTerminalRawSeqs,
   writeFinishIntent,
   type BufferedPoint,
 } from "@/client/runBuffer";
@@ -274,6 +276,24 @@ export function useRunTracker({
     setStatus("tracking");
   }, [clearWarningTimer]);
 
+  /**
+   * 시각 때문에 점 하나가 버려졌다고 센다(#160 · #172).
+   *
+   * 부르는 곳이 **둘**이다 — client prefilter(`isWithinRunStart`)가 거르는 경우와, 그것을
+   * 통과했는데 서버가 `invalid_recorded_at` · `bound: "past"` 로 영구 거절하는 경우다.
+   * 원인은 같은데(기기 시계가 늦다) 탐지 지점만 달라서, 한쪽만 세면 안내가 절반의 경우에만
+   * 뜬다(#172).
+   *
+   * **임계값과 리셋 규칙은 #160 이 정한 것을 그대로 쓴다** — 새 상수를 만들지 않고, 정상 fix
+   * 하나가 들어오면 `leaveGap` 이 0 으로 되돌린다.
+   */
+  const noteClockReject = useCallback(() => {
+    clockRejectsRef.current += 1;
+    if (clockRejectsRef.current >= CLOCK_SKEW_AFTER_REJECTS) {
+      setClockSkew(true);
+    }
+  }, []);
+
   // ── 업로드 ────────────────────────────────────────────────────────────────
   const scheduleFlush = useCallback((delayMs: number) => {
     if (stoppedRef.current) return;
@@ -383,6 +403,8 @@ export function useRunTracker({
       const body = (await response.json().catch(() => null)) as {
         error?: string;
         rawSeq?: number;
+        /** `invalid_recorded_at` 일 때만 온다(D11 2차). 없으면 terminal 로 보지 않는다. */
+        bound?: "past" | "future";
       } | null;
 
       if (
@@ -396,21 +418,40 @@ export function useRunTracker({
       }
 
       /*
-        서버가 시각 범위 밖이라고 돌려준 점(#145). 다시 보내도 영영 거절당하므로 **그 점만**
-        빼고 계속 간다 — 같은 배치를 무한히 재시도하면 뒤의 점도 하나도 올라가지 못한다.
+        서버가 시각 범위 밖이라고 돌려준 점(#145 · #164). **두 경계를 다르게 다룬다**(D11 2차).
 
-        빠진 번호는 기억해 뒀다가 종료 때 `lastRawSeq` 를 그 앞까지로 보낸다. 그러지 않으면
-        서버의 완전성 검사가 영영 `points_missing` 이 된다.
+        - `past` — `started_at` 이 고정이라 다시 보내도 결과가 같다. 그 점만 빼되 **빈 자리였다는
+          사실을 tombstone 으로 남긴다.** 메모리에만 두면 reload 한 순간 잊어버려 종료가 영영
+          `points_missing` 이 된다(#164).
+        - `future` — 서버 시각이 흐르면 통과할 수 있다. **점을 버리지 않고 tombstone 도 남기지
+          않으며**, 즉시 재요청하면 0ms loop 가 되므로 offline 과 같은 backoff 로 물러난다.
       */
       if (
         body?.error === "invalid_recorded_at" &&
         typeof body.rawSeq === "number"
       ) {
+        if (body.bound === "future") {
+          setUploadStatus("offline");
+          scheduleFlush(backoffMs(attemptRef.current++));
+          return;
+        }
+
+        /*
+          **원인은 시계다.** prefilter 를 통과한 점을 서버가 `past` 로 돌려보냈다는 것은
+          client 와 서버의 허용치가 갈렸다는 뜻이고, 사용자가 할 일은 #160 과 똑같다. 여기서
+          세지 않으면 그 러닝은 「GPS 신호 약함」만 보거나 아무 안내도 못 본다(#172).
+
+          `future` 는 위에서 이미 빠졌다 — 서버 시각이 흐르면 통과하므로 terminal 이 아니고,
+          시계 안내 대상도 아니다.
+        */
+        noteClockReject();
+
         droppedRawSeqsRef.current = [
           ...droppedRawSeqsRef.current,
           body.rawSeq,
         ];
-        await deleteBufferedPoint({
+        await markTerminalRawSeq({
+          userId,
           sessionId,
           trackerGeneration,
           rawSeq: body.rawSeq,
@@ -444,7 +485,14 @@ export function useRunTracker({
     } finally {
       flushingRef.current = false;
     }
-  }, [scheduleFlush, sessionId, stopWatch, trackerGeneration, userId]);
+  }, [
+    noteClockReject,
+    scheduleFlush,
+    sessionId,
+    stopWatch,
+    trackerGeneration,
+    userId,
+  ]);
 
   /*
     타이머 callback 이 항상 최신 `flush` 를 부르게 한다. `scheduleFlush` 가 `flush` 를 직접
@@ -478,10 +526,7 @@ export function useRunTracker({
           신호가 없어서 비는 것과 화면에서 구분되지 않으면 사용자가 엉뚱한 행동을 하게 된다.
           시각을 고쳐서 받아 주지는 않는다 — 그 방향은 범위 밖이다(#145 · D10 · P9).
         */
-        clockRejectsRef.current += 1;
-        if (clockRejectsRef.current >= CLOCK_SKEW_AFTER_REJECTS) {
-          setClockSkew(true);
-        }
+        noteClockReject();
         enterGap("signal");
         return;
       }
@@ -527,6 +572,7 @@ export function useRunTracker({
     [
       enterGap,
       leaveGap,
+      noteClockReject,
       scheduleFlush,
       sessionId,
       startedAtMs,
@@ -614,12 +660,26 @@ export function useRunTracker({
         sessionId,
         trackerGeneration,
       }).catch(() => []);
-      const bufferMax = await maxBufferedRawSeq({
+      const knownMax = await maxKnownRawSeq({
         userId,
         sessionId,
         trackerGeneration,
       }).catch(() => 0);
+      /*
+        영영 거절된 번호를 **durable 기록에서 되살린다**(#164 · D11 2차). 이 줄이 없으면
+        reload · 탭 재오픈 뒤 빈 자리를 몰라 종료가 영영 `points_missing` 이 된다.
+
+        읽지 못하면 빈 배열이다 — **표식이 없으면 terminal 이 아니다.** 저장소가 통째로 증발한
+        경우를 「영구 거절」로 오인해 `lastRawSeq` 를 함부로 낮추지 않는다(그 경우의 해소는 D14).
+      */
+      const terminal = await readTerminalRawSeqs({
+        userId,
+        sessionId,
+        trackerGeneration,
+      }).catch(() => []);
       if (cancelled) return;
+
+      droppedRawSeqsRef.current = terminal;
 
       const serverMax = mine.reduce(
         (max, point) => Math.max(max, point.rawSeq),
@@ -627,10 +687,11 @@ export function useRunTracker({
       );
 
       /*
-        이어 붙일 번호는 **`max(서버 max, 버퍼 max) + 1`** 이다(D11).
-        `ackThroughRawSeq + 1` 로 하면 서버에 이미 있는 번호를 다른 좌표로 재사용해 충돌한다.
+        이어 붙일 번호는 **`max(서버 max, 이 기기가 아는 max) + 1`** 이다(D11 2차).
+        `ackThroughRawSeq + 1` 로 하면 서버에 이미 있는 번호를 다른 좌표로 재사용해 충돌하고,
+        tombstone 을 빼고 세면 **영구 거절된 번호를 다른 점에 다시 부여한다.**
       */
-      nextRawSeqRef.current = Math.max(serverMax, bufferMax) + 1;
+      nextRawSeqRef.current = Math.max(serverMax, knownMax) + 1;
 
       const restored = mergeByRawSeq(mine, buffered.map(toRawPoint));
       setPoints(restored);
