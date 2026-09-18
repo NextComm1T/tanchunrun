@@ -622,6 +622,18 @@ Settings · Withdrawal · Map · Mock · E2E)은 **2절 그대로다.**
 **그 밖에 관찰** — production DB 에 `run_sessions` 1건인데 `route_points` 0건이다(#180 확인 중).
 그 세션이 `active` 면 해당 사용자는 P7 때문에 새 러닝을 시작할 수 없다. **확인하지 않았다.**
 
+→ **확인했다(2026-09-18 · 사용자 · Neon SQL Editor · `begin transaction read only` 로 감싼 조회).**
+사용자 id · 닉네임은 읽지 않았다.
+
+| status | save_state | started_at | finished_at | tracker_generation |
+| --- | --- | --- | --- | --- |
+| `finished` | `saved` | 2026-09-17 05:20:35 UTC | 2026-09-17 05:23:23 UTC | 1 |
+
+- `active` 가 아니다 — P7 로 막힌 사용자는 없다.
+- **남는 관찰** — 약 3분 러닝이 `saved` 로 끝났는데 `route_points` 가 0건이다(0건은 2026-09-18 의 count).
+  점 없이 저장되는 것이 정상 경로(GPS 를 한 번도 받지 못하고 종료)인지, 점이 사라진 것인지 **확인하지 않았다.**
+- SQL Editor 화면에 `Read-only` 토글이 보이지 않아 읽기 전용 transaction 으로 대신했다.
+
 ### 8-6. 7-4 의 갈림은 해소됐다
 
 7-4 가 적어 둔 「D11 을 2차로 갱신하거나 #145 구현을 ledger 에 맞추거나」는 **D11 2차(CONFIRMED ·
