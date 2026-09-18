@@ -1,26 +1,10 @@
 import "server-only";
 
 /**
- * DB 오류 판별.
+ * DB 오류 판별. 서버 코드가 쓰는 입구다.
  *
- * `pg` 는 서버가 보낸 SQLSTATE 를 `error.code` 에 문자열로 담아 준다. drizzle 은 그 오류를
- * 그대로 던지므로 코드로 구분할 수 있다.
+ * 판정 자체는 `sqlstate.ts` 가 한다 — 그쪽은 `server-only` 가 없는 순수 모듈이라 `npm test` 로
+ * 확인할 수 있다. 여기서 다시 내보내는 것은 호출부가 서버 전용 경계를 그대로 지나가게 하기
+ * 위해서다.
  */
-
-/**
- * PostgreSQL `unique_violation`.
- *
- * **중복을 이 오류로 판정하는 것이 중요하다.** 먼저 SELECT 해서 "있나?" 를 본 뒤 INSERT 하면
- * 두 요청이 동시에 들어왔을 때 둘 다 "없음" 을 보고 둘 다 통과한다. unique 제약에 맡기면
- * 반드시 한쪽만 성공한다.
- */
-const UNIQUE_VIOLATION = "23505";
-
-export function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === UNIQUE_VIOLATION
-  );
-}
+export { isUniqueViolation } from "./sqlstate";

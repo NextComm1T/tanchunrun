@@ -42,14 +42,32 @@ export function RunningScreen({
   });
 
   /*
+    이 기기는 더 이상 writer 가 아니다(#148 · D14). 다른 기기가 **인수**(409
+    `tracker_superseded`)했거나 **종료**(403 `not_tracker`)했고, 훅은 그 응답을 받은 순간
+    watch 를 멈춘다. 그런데 화면은 러닝 중 그대로여서, 사용자는 다시 열어 보기 전까지
+    측정이 멈춘 것을 모른다.
+
+    **둘 중 무엇인지는 화면이 모른다** — 훅이 내려 주는 것은 `read-only` 하나이고,
+    마운트 시점에 writer 가 아니었던 기기도 같은 값을 받는다. 사용자가 할 일도 둘이
+    같아서(이 기기에서는 더 못 잰다) 한 문구로 알리고, 갈라지는 지점은 `/` 가
+    서버 판정으로 처리한다 — 아래 안내의 링크를 본다.
+  */
+  const trackerStopped = tracker.status === "read-only";
+
+  /*
     지도의 딤 · 경고 카드는 **신호를 잃었다는 것이 사용자에게 뜻이 있을 때만** 띄운다.
     화면을 숨겨서 생긴 gap(D1)은 사용자가 알고 한 일이라 경고하지 않는다 —
     그 구분은 훅이 `gpsWarning` 으로 내려 준다(P3 2초 기준 포함).
 
     권한이 꺼진 경우는 2초를 기다리지 않는다. 측정이 확실히 멈춘 상태라 「GPS 정상」을
     보여 주면 거짓말이 된다.
+
+    측정이 아예 끝난 뒤에는 GPS 경고를 켜지 않는다 — 「신호가 복구될 때까지」는 복구되면
+    다시 잰다는 뜻인데, 이 기기는 신호가 돌아와도 재지 않는다(#148).
   */
-  const gpsLost = tracker.gpsWarning || tracker.status === "permission-denied";
+  const gpsLost =
+    !trackerStopped &&
+    (tracker.gpsWarning || tracker.status === "permission-denied");
 
   return (
     <>
@@ -57,6 +75,7 @@ export function RunningScreen({
         startedAt={startedAt}
         gpsLost={gpsLost}
         inZone={tracker.inZone}
+        stopped={trackerStopped}
       />
 
       <RunMap
@@ -88,6 +107,24 @@ export function RunningScreen({
           <Link href="/settings/location" className="underline">
             위치정보 설정 보기
           </Link>
+        </p>
+      ) : null}
+
+      {/*
+        fix 가 **시각 때문에** 걸러지고 있다(#160 · #145). 신호가 없어서 비는 것과 화면상
+        구분이 없으면 사용자는 하늘이 트인 곳을 찾아 나서는 등 엉뚱한 행동을 하게 된다 —
+        원인은 기기 설정이고, 고치면 그 자리에서 다시 기록된다(러닝을 다시 시작하지 않아도
+        된다). 훅이 「GPS 신호 약함」과 **동시에 켜지지 않게** 내려 준다.
+
+        60초 · 허용치 · rawSeq 같은 내부 용어는 쓰지 않는다(#125).
+      */}
+      {tracker.clockSkew ? (
+        <p
+          role="alert"
+          className="mx-4 mt-3 shrink-0 rounded-md border-[1.5px] border-error-border bg-error-soft px-4 py-3 text-sm font-bold text-error"
+        >
+          기기 시간이 실제 시각과 달라 기록되지 않고 있어요. 기기 설정에서 날짜 · 시간을
+          자동으로 맞추면 다시 기록됩니다.
         </p>
       ) : null}
 
@@ -142,7 +179,39 @@ export function RunningScreen({
         tancheonHighlighted={tracker.inZone && !gpsLost}
       />
 
-      <SlideToFinish sessionId={sessionId} onFinish={tracker.finish} />
+      {/*
+        측정이 끝난 기기에는 **종료 슬라이드를 두지 않는다**(#148). 끝까지 밀어도 훅이
+        writer record 가 없어 종료 의사를 남기지 못하고(`useRunTracker.finish`), 그런데도
+        결과 화면으로 넘어가 러닝을 끝낸 것처럼 보인다.
+
+        대신 다음 행동을 `/` 로 보낸다 — 러닝이 이미 끝났으면 `/home`, 아직 진행 중이면
+        `/running` 으로 되돌아와 `TrackerGate` 가 「이어서 측정」·「여기서 종료」를 준다.
+        어느 쪽인지 서버만 아는 것을 화면이 추측하지 않는다.
+      */}
+      {trackerStopped ? (
+        <div className="shrink-0 px-4 pt-2 pb-[22px]">
+          <div
+            role="alert"
+            className="rounded-2xl border-[1.5px] border-border bg-surface px-5 py-5 shadow-card"
+          >
+            <p className="text-content font-extrabold text-foreground">
+              이 기기에서는 더 이상 측정하지 않아요
+            </p>
+            <p className="mt-2 text-note leading-[1.6] font-medium text-subtle">
+              다른 기기가 이 러닝을 이어받았거나 이미 종료했어요. 지금까지 서버에
+              보낸 기록은 그대로 남아 있어요.
+            </p>
+            <Link
+              href="/"
+              className="mt-4 flex h-[58px] items-center justify-center rounded-xl bg-primary text-button font-extrabold text-on-primary shadow-primary"
+            >
+              현재 상태 확인
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <SlideToFinish sessionId={sessionId} onFinish={tracker.finish} />
+      )}
     </>
   );
 }

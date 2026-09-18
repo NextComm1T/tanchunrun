@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 
 import {
   deleteAckedPoints,
+  deleteBufferedPoint,
   deleteRunData,
+  finishLastRawSeq,
   readBufferedPoints,
   readFinishIntent,
+  writeFinishIntent,
   type FinishIntent,
 } from "@/client/runBuffer";
 
@@ -84,24 +87,32 @@ export function ResultRecoveryGate({
    * 아직 서버로 못 올린 점을 먼저 밀어 넣는다. **실패해도 여기서 멈춘다** — `finishRun` 이
    * 부족한 점을 `points_missing` 으로 정확히 알려 주므로, flush 실패를 별도로 판정하지
    * 않는다.
+   *
+   * 예외가 하나 있다(#145) — 서버가 시각 범위 밖이라고 돌려준 점은 **다시 보내도 영영 거절**
+   * 당한다. 그 점만 버리고 계속 가되, 종료 의사의 `lastRawSeq` 도 빈 자리 앞까지로 낮춰
+   * durable 하게 다시 남긴다. 그러지 않으면 완전성 검사가 영영 `points_missing` 이다.
+   *
+   * 갱신된 intent 를 돌려주므로 호출부는 **그 값으로** 종료를 요청한다.
    */
   const flushBuffered = useCallback(
-    async (intent: FinishIntent) => {
+    async (intent: FinishIntent): Promise<FinishIntent> => {
+      let current = intent;
+
       for (;;) {
         const buffered = await readBufferedPoints({
           userId,
           sessionId,
-          trackerGeneration: intent.trackerGeneration,
+          trackerGeneration: current.trackerGeneration,
         });
-        if (buffered.length === 0) return;
+        if (buffered.length === 0) return current;
 
         const batch = buffered.slice(0, FLUSH_BATCH);
         const response = await fetch(`/api/runs/${sessionId}/points`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            trackerToken: intent.trackerToken,
-            trackerGeneration: intent.trackerGeneration,
+            trackerToken: current.trackerToken,
+            trackerGeneration: current.trackerGeneration,
             points: batch.map((point) => ({
               rawSeq: point.rawSeq,
               segment: point.segment,
@@ -113,7 +124,35 @@ export function ResultRecoveryGate({
           }),
         });
 
-        if (!response.ok) return;
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+            rawSeq?: number;
+          } | null;
+
+          // 영영 거절당할 점 하나 때문에 러닝 전체가 멈추지 않게 한다(#145).
+          if (
+            body?.error === "invalid_recorded_at" &&
+            typeof body.rawSeq === "number"
+          ) {
+            await deleteBufferedPoint({
+              sessionId,
+              trackerGeneration: current.trackerGeneration,
+              rawSeq: body.rawSeq,
+            });
+
+            const lastRawSeq = finishLastRawSeq(current.lastRawSeq + 1, [
+              body.rawSeq,
+            ]);
+            if (lastRawSeq !== current.lastRawSeq) {
+              current = { ...current, lastRawSeq };
+              await writeFinishIntent(current);
+            }
+            continue;
+          }
+
+          return current;
+        }
 
         const { ackThroughRawSeq } = (await response.json()) as {
           ackThroughRawSeq: number;
@@ -121,11 +160,11 @@ export function ResultRecoveryGate({
         await deleteAckedPoints({
           userId,
           sessionId,
-          trackerGeneration: intent.trackerGeneration,
+          trackerGeneration: current.trackerGeneration,
           ackThroughRawSeq,
         });
 
-        if (buffered.length <= batch.length) return;
+        if (buffered.length <= batch.length) return current;
       }
     },
     [sessionId, userId],
@@ -149,16 +188,17 @@ export function ResultRecoveryGate({
       setPhase("working");
       setMessage("저장하는 중이에요…");
 
-      await flushBuffered(intent);
+      // flush 중에 영영 거절당한 점이 나오면 `lastRawSeq` 가 낮아진 intent 가 돌아온다(#145).
+      const flushed = await flushBuffered(intent);
 
       const response = await fetch(`/api/runs/${sessionId}/finish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          trackerToken: intent.trackerToken,
-          trackerGeneration: intent.trackerGeneration,
-          clientFinishedAt: intent.clientFinishedAt,
-          lastRawSeq: intent.lastRawSeq,
+          trackerToken: flushed.trackerToken,
+          trackerGeneration: flushed.trackerGeneration,
+          clientFinishedAt: flushed.clientFinishedAt,
+          lastRawSeq: flushed.lastRawSeq,
         }),
       });
 
