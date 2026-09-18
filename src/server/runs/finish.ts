@@ -285,45 +285,69 @@ async function resumeFinished(session: {
 
 export async function finishRun(input: FinishRunInput): Promise<FinishRunOutcome> {
   try {
-    const rows = await getDb()
-      .select({
-        status: runSessions.status,
-        saveState: runSessions.saveState,
-        startedAt: runSessions.startedAt,
-        finishedAt: runSessions.finishedAt,
-        trackerGeneration: runSessions.trackerGeneration,
-        trackerTokenHash: runSessions.trackerTokenHash,
-      })
-      .from(runSessions)
-      .where(
-        and(eq(runSessions.id, input.sessionId), eq(runSessions.userId, input.userId)),
-      )
-      .limit(1);
-
-    const session = rows[0];
-    if (!session) return { ok: false, error: "not_tracker" };
-
-    // 더블 제출 · 재시도 멱등(P14) — 이미 끝난 세션은 새로 끝내지 않는다.
-    if (session.status === "finished") {
-      return resumeFinished({ id: input.sessionId, userId: input.userId, ...session });
-    }
-
-    // ②. generation · token — appendPoints(#83)와 같은 판정이다.
-    if (input.trackerGeneration < session.trackerGeneration) {
-      return { ok: false, error: "tracker_superseded" };
-    }
-    if (input.trackerGeneration !== session.trackerGeneration) {
-      return { ok: false, error: "not_tracker" };
-    }
-    if (hashTrackerToken(input.trackerToken) !== session.trackerTokenHash) {
-      return { ok: false, error: "not_tracker" };
-    }
-
     const finishReceivedAt = new Date();
 
+    /*
+      인가 · 완전성 · 상태 전이를 **한 transaction 에서 세션 행을 잠근 채로** 한다(#149).
+
+      잠그기 전에 판정하면 판정과 전이 사이에 다른 쪽이 끼어든다. 업로드(`points.ts` #114)는
+      이미 같은 행을 `FOR UPDATE` 로 잡고 도는데 종료만 잠그지 않으면 — (1) 완전성과 D13 하한을
+      센 뒤에 같은 generation 의 점이 더 commit 돼 그 점까지 포함한 채로 확정되고, (2) 다른
+      기기가 인수하면(D14) 마지막 UPDATE 가 0행이 돼 `tracker_superseded` 가 아니라 `failed`
+      로 나갔다. client 는 그것을 일시 실패로 보고 영영 재시도한다.
+
+      **tx2(`finalizeSession`)와 멱등 경로(`resumeFinished`)는 잠금 밖에서 부른다** — 둘 다
+      새 connection 으로 별도 transaction 을 열기 때문에, 잠금을 쥔 채 부르면 자기 자신이
+      놓기를 기다린다.
+    */
     const attempt = await getDb().transaction(async (tx) => {
-      // ③. admission 은 tx1 과 같은 transaction 에서 일어난다(D11) — commit 되면 token
-      // 소비도 함께 commit 되고, tx2 가 나중에 실패해도 환불하지 않는다.
+      // ── ① 인가. 소유 · generation · token 을 **잠근 행으로** 본다 ──────────────
+      //    `status` 는 WHERE 에 넣지 않는다 — 이미 `finished` 인 세션의 멱등 경로(P14)도
+      //    같은 잠금 아래에서 판정해야 한다.
+      const sessions = await tx
+        .select({
+          status: runSessions.status,
+          saveState: runSessions.saveState,
+          startedAt: runSessions.startedAt,
+          finishedAt: runSessions.finishedAt,
+          trackerGeneration: runSessions.trackerGeneration,
+          trackerTokenHash: runSessions.trackerTokenHash,
+        })
+        .from(runSessions)
+        .where(
+          and(eq(runSessions.id, input.sessionId), eq(runSessions.userId, input.userId)),
+        )
+        .for("update")
+        .limit(1);
+
+      const session = sessions[0];
+      if (!session) return { kind: "not_tracker" as const };
+
+      // 더블 제출 · 재시도 멱등(P14) — 이미 끝난 세션은 새로 끝내지 않는다. token 도 쓰지
+      // 않는다. 이어가는 것은 잠금을 놓은 뒤다.
+      if (session.status === "finished") {
+        return {
+          kind: "already_finished" as const,
+          startedAt: session.startedAt,
+          finishedAt: session.finishedAt,
+          saveState: session.saveState,
+        };
+      }
+
+      // ── ② generation · token — appendPoints(#83)와 같은 판정이고, 이제 같은 잠금 아래다 ──
+      if (input.trackerGeneration < session.trackerGeneration) {
+        return { kind: "tracker_superseded" as const };
+      }
+      if (input.trackerGeneration !== session.trackerGeneration) {
+        return { kind: "not_tracker" as const };
+      }
+      if (hashTrackerToken(input.trackerToken) !== session.trackerTokenHash) {
+        return { kind: "not_tracker" as const };
+      }
+
+      // ── ③ admission. 인가를 통과한 요청만 bucket 을 건드린다(#83) ────────────────
+      //    tx1 과 같은 transaction 이라 commit 되면 token 소비도 함께 commit 되고,
+      //    tx2 가 나중에 실패해도 환불하지 않는다(D11).
       const admission = await consumeSessionTokens(
         {
           kind: "finish",
@@ -338,8 +362,8 @@ export async function finishRun(input: FinishRunInput): Promise<FinishRunOutcome
         return { kind: "rate_limited" as const, retryAfterSec: admission.retryAfterSec };
       }
 
-      // 완전성 확인(상태 변경 전) — 현재 generation 이 1..lastRawSeq 까지 이어져 있는가.
-      // lastRawSeq = 0(accept fix 0개)은 `ackThroughRawSeq([]) === 0` 이라 그대로 통과한다.
+      // ── ④ 완전성(상태 변경 전) — 현재 generation 이 1..lastRawSeq 까지 이어져 있는가 ──
+      //    lastRawSeq = 0(accept fix 0개)은 `ackThroughRawSeq([]) === 0` 이라 그대로 통과한다.
       const stored = await tx
         .select({ rawSeq: routePoints.rawSeq })
         .from(routePoints)
@@ -362,8 +386,9 @@ export async function finishRun(input: FinishRunInput): Promise<FinishRunOutcome
         };
       }
 
-      // D13 — finished_at = clamp(clientFinishedAt, lowerBound, upperBound).
-      // lowerBound 는 D14 final target(모든 generation)의 최댓값이다.
+      // ── ⑤ D13 — finished_at = clamp(clientFinishedAt, lowerBound, upperBound) ────
+      //    lowerBound 는 D14 final target(모든 generation)의 최댓값이다. 잠금 아래라
+      //    이 최댓값을 센 뒤에 점이 더 들어오는 일이 없다.
       const latestPoint = await tx
         .select({ recordedAt: routePoints.recordedAt })
         .from(routePoints)
@@ -384,6 +409,7 @@ export async function finishRun(input: FinishRunInput): Promise<FinishRunOutcome
       );
       const finishedAt = new Date(finishedAtMs);
 
+      // ── ⑥ 전이 ─────────────────────────────────────────────────────────────────
       const updated = await tx
         .update(runSessions)
         .set({ status: "finished", finishedAt, finishReceivedAt, saveState: "pending" })
@@ -398,14 +424,33 @@ export async function finishRun(input: FinishRunInput): Promise<FinishRunOutcome
         .returning({ id: runSessions.id });
 
       if (updated.length === 0) {
-        // 그 사이 다른 요청이 먼저 끝냈다(더블 제출) — 실패가 아니라 멱등 경로다.
-        return { kind: "lost_race" as const };
+        /*
+          같은 조건을 잠근 행에서 이미 확인했으므로 여기에 오면 안 된다. 그래도 조용히
+          성공으로 넘기지 않는다 — 넘기면 client 가 저장됐다고 믿고 버퍼를 버린다.
+        */
+        return { kind: "transition_lost" as const };
       }
 
-      return { kind: "tx1_committed" as const, finishedAt };
+      return {
+        kind: "tx1_committed" as const,
+        startedAt: session.startedAt,
+        finishedAt,
+      };
     });
 
     switch (attempt.kind) {
+      case "not_tracker":
+        return { ok: false, error: "not_tracker" };
+      case "tracker_superseded":
+        return { ok: false, error: "tracker_superseded" };
+      case "already_finished":
+        return resumeFinished({
+          id: input.sessionId,
+          userId: input.userId,
+          startedAt: attempt.startedAt,
+          finishedAt: attempt.finishedAt,
+          saveState: attempt.saveState,
+        });
       case "rate_limited":
         return { ok: false, error: "rate_limited", retryAfterSec: attempt.retryAfterSec };
       case "points_missing":
@@ -414,29 +459,13 @@ export async function finishRun(input: FinishRunInput): Promise<FinishRunOutcome
           error: "points_missing",
           expectedNextRawSeq: attempt.expectedNextRawSeq,
         };
-      case "lost_race": {
-        const resumed = await getDb()
-          .select({
-            status: runSessions.status,
-            saveState: runSessions.saveState,
-            startedAt: runSessions.startedAt,
-            finishedAt: runSessions.finishedAt,
-          })
-          .from(runSessions)
-          .where(
-            and(eq(runSessions.id, input.sessionId), eq(runSessions.userId, input.userId)),
-          )
-          .limit(1);
-
-        const row = resumed[0];
-        if (!row || row.status !== "finished") return { ok: false, error: "failed" };
-        return resumeFinished({ id: input.sessionId, userId: input.userId, ...row });
-      }
+      case "transition_lost":
+        return { ok: false, error: "failed" };
       case "tx1_committed":
         return finalizeSession({
           id: input.sessionId,
           userId: input.userId,
-          startedAt: session.startedAt,
+          startedAt: attempt.startedAt,
           finishedAt: attempt.finishedAt,
         });
     }

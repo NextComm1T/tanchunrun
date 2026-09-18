@@ -19,7 +19,7 @@
  * 두 모듈이 서로 다른 버전으로 같은 DB 를 열면 한쪽이 통째로 실패한다.
  */
 
-import { STORES, withStore } from "./idb";
+import { STORES, withStore, withTransaction } from "./idb";
 
 export { requestPersistentStorage } from "./idb";
 
@@ -88,6 +88,40 @@ export async function isCurrentTracker(input: {
     record.sessionId === input.sessionId &&
     record.trackerGeneration === input.trackerGeneration
   );
+}
+
+/**
+ * 이 세션의 tracker 기록을 지운다 — **(A) permanent cleanup 에서만 부른다**(D11 2차).
+ *
+ * (A) 는 `saved` 확인 · permanent 404 · `withdraw()` 셋뿐이고 tracker record 는 거기서 말하는
+ * **「그 session 의 durable state 전부」에 포함된다.** 로그아웃 · 시간 경과는 사유가 아니다.
+ *
+ * **`userId` 와 `sessionId` 가 둘 다 맞을 때만 지운다.** 기기에 레코드가 하나뿐이라(key
+ * `"current"`) 조건 없이 지우면, 그 사이 다른 사람이 · 다른 러닝으로 저장해 둔 기록까지 없애
+ * 그 기기가 writer 자격을 잃는다(D11 userId 격리 · 「원 소유자의 재로그인 복구를 위해 임의로
+ * 삭제하지 않는다」).
+ *
+ * **generation 은 보지 않는다** — 그 세션이 (A) 로 끝났으면 어느 generation 의 기록이든 죽었다.
+ *
+ * 읽기와 삭제를 **한 readwrite 트랜잭션** 안에서 한다. 나눠 하면 그 사이에 다른 러닝이
+ * 저장한 기록을 옛 판정으로 지울 수 있다.
+ */
+export async function deleteTrackerRecordForSession(input: {
+  userId: string;
+  sessionId: string;
+}): Promise<void> {
+  await withTransaction(STORES.tracker, "readwrite", (store) => {
+    const request = store.get(RECORD_KEY);
+
+    request.onsuccess = () => {
+      const stored: unknown = request.result;
+      if (!isTrackerRecord(stored)) return;
+      if (stored.userId !== input.userId) return;
+      if (stored.sessionId !== input.sessionId) return;
+
+      store.delete(RECORD_KEY);
+    };
+  });
 }
 
 function isTrackerRecord(value: unknown): value is TrackerRecord {
