@@ -51,7 +51,12 @@ type RunTabProps = {
 export function RunTab({ hasActiveRun, summary }: RunTabProps) {
   const router = useRouter();
 
-  const { state: gpsState, firstFix, retry: retryGps } = useGeolocationReady();
+  const {
+    state: gpsState,
+    stalled: gpsStalled,
+    firstFix,
+    retry: retryGps,
+  } = useGeolocationReady();
 
   /** `null` 이면 카운트다운 중이 아니다. 홈과 카운트다운을 가르는 값이기도 하다. */
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -153,6 +158,7 @@ export function RunTab({ hasActiveRun, summary }: RunTabProps) {
 
         <RunMapCard
           gps={gpsState}
+          gpsStalled={gpsStalled}
           startError={startError}
           position={firstFix}
           onStart={handleStart}

@@ -26,6 +26,15 @@ export type GeolocationReadyState =
 
 export type GeolocationReady = {
   state: GeolocationReadyState;
+  /**
+   * 확인이 비정상적으로 오래 끌고 있다(#190). `state` 가 `checking` 일 때만 참이다.
+   *
+   * **다섯 번째 상태로 만들지 않는다** — `GPS_BADGE_LABEL` · `START_BUTTON_LABEL` 은 둘 다
+   * `Record<GeolocationReadyState, string>` 이라 상태를 늘리면 값이 `checking` 과 똑같은 키만
+   * 하나 더 생기고, 디자인 고정인 배지 · 시작 버튼 라벨까지 건드리게 된다.
+   * `useRunTracker` 가 `status` 를 `"gap"` 에 둔 채 별도 `gpsWarning` 을 세우는 것과 같다.
+   */
+  stalled: boolean;
   /** 시작할 때 서버로 보낼 첫 측위. `ready` 일 때만 값이 있다. */
   firstFix: FirstFix | null;
   /** 실패한 뒤 다시 시도한다. */
@@ -34,6 +43,19 @@ export type GeolocationReady = {
 
 /** 첫 측위를 기다리는 한도. 넘으면 `unavailable` 로 보고 안내를 띄운다. */
 const FIX_TIMEOUT_MS = 10_000;
+
+/**
+ * `checking` 이 이만큼 이어지면 멈춘 것으로 보고 빠져나갈 길을 준다(#190).
+ *
+ * **리터럴이 아니라 `FIX_TIMEOUT_MS` 와의 관계로 적는다 — 반드시 그보다 커야 한다.**
+ * 권한이 이미 허용돼 있으면 좌표가 오지 않아도 10초에 `unavailable` 로 떨어지고, 그 자리는
+ * 「다시 확인」(#119)이 이미 맡고 있다. 임계가 짧으면 정상 실패 경로를 가로챈다.
+ * 여유분 5초는 같은 시점에 `NaverTancheonMap` 이 SDK 를 받느라 메인 스레드가 붐빌 때의
+ * 콜백 지연 몫이다.
+ *
+ * 여기 두는 이유는 값의 근거가 `FIX_TIMEOUT_MS` 라서다 — `gps.ts` 는 문구 모듈이다.
+ */
+const CHECKING_STALL_MS = FIX_TIMEOUT_MS + 5_000;
 
 /**
  * Permissions API 로 권한 상태를 미리 본다.
@@ -82,6 +104,8 @@ export function useGeolocationReady(): GeolocationReady {
   const [state, setState] = useState<GeolocationReadyState>("checking");
   const [firstFix, setFirstFix] = useState<FirstFix | null>(null);
   const [attempt, setAttempt] = useState(0);
+  /** 이번 시도의 `checking` 이 임계를 넘겼다. 내보내는 값은 아래에서 파생한다. */
+  const [stallElapsed, setStallElapsed] = useState(false);
 
   /*
     권한 변경 핸들러가 "지금 막혀 있는가"를 읽어야 한다. 핸들러는 구독할 때의 렌더에 묶여
@@ -135,9 +159,65 @@ export function useGeolocationReady(): GeolocationReady {
     };
   }, [attempt]);
 
+  /*
+    `checking` 에서 빠져나오지 못하는 경로가 있다(#190). `detect()` 에는 자체 타임아웃이
+    없고, W3C Geolocation 의 `timeout` 은 **권한이 허용된 뒤에야** 세기 시작한다 — 권한 창을
+    열어 둔 채 답하지 않으면 success · error 어느 콜백도 오지 않는다. `permissions.query` 가
+    settle 하지 않는 경우도 `await` 에서 멈춘다(`try/catch` 는 reject 만 잡지 hang 은 못 잡는다).
+    아래 effect B 의 재조회도 `denied` 만 구해 주므로, 그대로 두면 새로고침 말고는 길이 없다.
+
+    **타이머를 위 effect 에 얹지 않고 여기 따로 둔다.** 저쪽은 deps 가 `[attempt]` 뿐이라
+    `detect()` 가 끝나도 다시 돌지 않아서, 거기에 두면 종료 지점마다 `clearTimeout` 을 박아야
+    하고 하나만 빠뜨려도 `ready` 화면에서 타이머가 살아 있다. deps 에 `state` 를 넣으면
+    「타이머 수명 = `checking` 인 동안」이 그대로 표현되고 벗어나는 순간 cleanup 이 돈다.
+
+    **`attempt` 가 함께 있어야 한다** — 멈춘 상태에서 「다시 확인」을 누르면 `retry()` 의
+    `setState("checking")` 은 같은 값이라 React 가 bail out 한다. `attempt` 가 없으면 이 effect
+    가 재실행되지 않아 두 번째 시도에는 멈춤 감지가 영영 걸리지 않는다.
+
+    **탭이 숨으면 세지 않고, 돌아오면 0부터 다시 센다.** 권한 창은 브라우저 UI라 문서는 계속
+    `visible` 이므로 목표 케이스를 방해하지 않고, 「탭을 비웠다 오니 곧바로 멈춤 안내」라는
+    거짓 양성만 걸러 낸다. 아래 `sync()` 가 hidden 이면 즉시 return 하는 것과 같은 선이다.
+
+    `setState` 는 effect 본문이 아니라 **타이머 콜백 안에서만** 부른다
+    (react-hooks/set-state-in-effect · `RunTab.tsx` 의 카운트다운이 같은 형태다).
+  */
+  useEffect(() => {
+    if (state !== "checking") return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    function stop() {
+      if (timer === null) return;
+      clearTimeout(timer);
+      timer = null;
+    }
+
+    function start() {
+      if (timer !== null) return;
+      timer = setTimeout(() => setStallElapsed(true), CHECKING_STALL_MS);
+    }
+
+    function onVisibilityChange() {
+      // 돌아올 때는 남은 시간을 이어받지 않는다 — `stop()` 이 비운 자리에 새로 건다.
+      if (document.visibilityState === "hidden") stop();
+      else start();
+    }
+
+    if (document.visibilityState !== "hidden") start();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [state, attempt]);
+
   const retry = useCallback(() => {
     setState("checking");
     setFirstFix(null);
+    // 이미 `checking` 이면 위 `setState` 가 bail out 하므로 여기서 직접 내린다(#190).
+    setStallElapsed(false);
     setAttempt((n) => n + 1);
   }, []);
 
@@ -215,5 +295,14 @@ export function useGeolocationReady(): GeolocationReady {
     };
   }, [retry]);
 
-  return { state, firstFix, retry };
+  /*
+    **파생값이다.** `ready` · `denied` · `unavailable` 로 갈 때 해제 코드가 따로 필요 없고,
+    effect 안에서 동기 `setState(false)` 를 부를 일도 없다.
+  */
+  return {
+    state,
+    stalled: state === "checking" && stallElapsed,
+    firstFix,
+    retry,
+  };
 }
