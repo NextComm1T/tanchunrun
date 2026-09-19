@@ -89,6 +89,14 @@ export type RunTrackerView = {
    * 된다. 원인은 기기 설정이고, 고치면 그 자리에서 다시 기록된다.
    */
   clockSkew: boolean;
+  /**
+   * 이 러닝 도중 화면이 한 번이라도 숨었다(#202 · D1).
+   *
+   * 숨은 구간은 거리 · 경로에서 빠지고 경과 시간에는 들어간다. **동작은 D1 대로지만
+   * 사용자는 그것을 알 방법이 없어서**(#193 실측) 화면이 한 줄로 알린다. 한 번 참이면
+   * 이 러닝이 끝날 때까지 참이다 — 빠진 구간은 돌아오지 않는다.
+   */
+  hiddenSkipped: boolean;
   uploadStatus: UploadStatus;
   routePoints: RoutePoint[];
   totalDistanceM: number;
@@ -187,6 +195,8 @@ export function useRunTracker({
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
   const [gpsWarning, setGpsWarning] = useState(false);
   const [clockSkew, setClockSkew] = useState(false);
+  /** 숨은 구간이 한 번이라도 있었다(#202). 되돌아오지 않으므로 내리지 않는다. */
+  const [hiddenSkipped, setHiddenSkipped] = useState(false);
   const [points, setPoints] = useState<RawPoint[]>([]);
   const [paceTick, setPaceTick] = useState(() => Date.now());
 
@@ -740,6 +750,8 @@ export function useRunTracker({
       if (document.visibilityState === "hidden") {
         stopWatch();
         enterGap("platform");
+        // 측정이 이미 끝난 기기에서는 알릴 것이 없다(#148 · #85).
+        if (!stoppedRef.current) setHiddenSkipped(true);
         return;
       }
 
@@ -851,6 +863,7 @@ export function useRunTracker({
     */
     gpsWarning: gpsWarning && !clockSkew,
     clockSkew,
+    hiddenSkipped,
     uploadStatus,
     routePoints: result.routePoints,
     totalDistanceM: result.totalDistanceM,

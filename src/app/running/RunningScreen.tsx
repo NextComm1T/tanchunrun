@@ -208,6 +208,29 @@ export function RunningScreen({
         </p>
       ) : null}
 
+      {/*
+        화면이 꺼져 있거나 다른 앱을 보고 있던 동안은 측정되지 않는다(D1). **고장이 아니라
+        웹의 한계**이고 앱은 그 규칙대로 동작하지만, 사용자는 돌아와서야 거리가 그대로인 것을
+        보게 된다(#193 실측 · #202). 그래서 무슨 일이 있었는지만 알린다.
+
+        위 `pointsDropped` 와 같은 warning 토큰이다 — 빠진 구간은 돌아오지 않는다. 기다리면
+        해결되는 offline · rate-limited 의 회색과 구분한다.
+
+        **경과 시간은 포함된다는 것을 함께 적는다.** 그 말이 없으면 시간까지 빠진 줄 알고
+        기록이 틀렸다고 읽는다(`started_at` 기준 · D1).
+
+        hidden · visibilitychange · Wake Lock 같은 내부 용어는 쓰지 않는다(#125).
+      */}
+      {!trackerStopped && tracker.hiddenSkipped ? (
+        <p
+          role="status"
+          className="mx-4 mt-3 shrink-0 rounded-md border-[1.5px] border-warning-border bg-warning-soft px-4 py-2.5 text-note font-bold break-keep text-warning"
+        >
+          화면이 꺼져 있던 동안에는 거리가 기록되지 않아요. 달리는 동안에는 화면을 켜 두세요.
+          경과 시간에는 포함됩니다.
+        </p>
+      ) : null}
+
       <RunStats
         totalDistanceKm={toKilometres(tracker.totalDistanceM)}
         tancheonDistanceKm={toKilometres(tracker.tancheonDistanceM)}
