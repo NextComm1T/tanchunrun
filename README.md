@@ -343,7 +343,7 @@ gitGraph
 
 ### 규모
 
-2026-09-21 기준이다. 이 표를 고친 PR과 그 승격은 아직 세지 않았다.
+2026-09-21 기준이다. 이 표를 고친 뒤에 올린 문서 PR과 그 승격들은 세지 않았다.
 
 | 항목 | 수 |
 |---|---|
@@ -503,6 +503,17 @@ gitGraph
 - **정상 경로만 보고 끝내지 않는다.** 위 두 건 다 오프라인·다중 탭처럼 정상 경로 **밖**에서 나왔고, 코드 리뷰가 아니라 실측에서 잡혔다. 다음에는 기능마다 「네트워크가 없을 때 · 같은 화면을 두 개 열었을 때」를 구현 시점에 함께 적어 두고 그 자리에서 확인한다.
 - **병렬로 나누기 전에 공용 컴포넌트를 먼저 확정하고 머지한다.** 이번에는 탭바(#34)·지도(#33)를 먼저 끝내서 충돌이 없었다. 다음에도 순서를 이렇게 둔다.
 - **기준이 둘이면(기획 문서 vs 디자인) 작업 시작 전에 하나로 정하고 `CLAUDE.md`에 적는다.** 이번에는 화면마다 판단이 갈린 뒤에야 정했다(§10, 2026-09-14).
+
+### 팀원별 회고 — 기술 블로그
+
+위 팀 회고와 별개로, **4명이 각자 자기 작업을 STAR로 썼다.** 링크는 [#213](https://github.com/NextComm1T/tanchunrun/issues/213)에 각자 코멘트로 모았다.
+
+| 팀원 | 글 | 무엇을 다뤘나 |
+|---|---|---|
+| [@wol20670](https://github.com/wol20670) | [preview 배포가 production DB에 쓰고 있었다 — 값을 못 보는 채로 DB를 갈라낸 기록](https://wol20670.github.io/my-blog/posts/vercel-neon-db-environment-split/) | 돌아가는 production을 무중단으로 갈라내고, 잠긴 환경 변수라 값을 못 보는 채로 pooled 여부를 증명한 과정 (#112 · #180) |
+| [@eunjung01230](https://github.com/eunjung01230) | [Figma에서 Claude Design으로 디자인 전달하기](https://eunjung01230.github.io/my-blog/projects/tanchunrun/02-figma-claude-design/) | 자료마다 역할을 못 박고 프롬프트를 「유지 / 수정 / 하지 않을 것」 3단으로 바꿔 디자인 단계에서 범위가 늘어나는 것을 막은 이야기 |
+| [@SeungBinYang](https://github.com/SeungBinYang) | [문서대로 구현하면 조용히 틀린다 — 탄천 인정 거리 판정을 중점으로 바꾼 이야기](https://seungbinyang.github.io/my-blog/retrospective/2026/09/21/tancheon-measure-domain.html) | 기획 P5와 결정 D9를 같이 적용하면 아무것도 걸러지지 않는 모순을 발견하고 판정 방식을 바꾼 과정 (#93) |
+| [@softy20](https://github.com/softy20) | [화면 꺼지면 GPS가 끊기는 이유 — 실력 문제 vs 브라우저 정책](https://softy20.github.io/my-blog/exploration/2026/09/21/background-gps-browser-policy/) | 「우리가 못 한 것」과 「브라우저 정책 제약」을 코드 근거로 갈라낸 과정 (D1 · #99) |
 
 ---
 
