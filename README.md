@@ -150,7 +150,7 @@ flowchart LR
 
 <!-- TODO(#209): 피그마 · Claude Design 캡처를 docs/images/ 에 넣고 빈 칸을 채운다 -->
 
-실제 구현은 integration 배포에서 찍었다. 지도는 NAVER Maps 실제 타일이고, 경로는 탄천 Ranking Zone 안에서 시작해 Zone 밖으로 나가는 0.44km 러닝이다.
+실제 구현은 integration 배포에서 찍었다. 지도는 NAVER Maps 실제 타일이다. 러닝은 **탄천 Ranking Zone 안에서 출발해 Zone 밖으로 나가도록** 만들어, 총 거리와 탄천 인정 거리가 갈리는 장면을 담았다 — 러닝 진행은 0.50km 중 0.34km 인정, 결과는 0.44km 중 0.34km 인정이다(서로 다른 세션이다).
 
 | 화면 | 피그마 | Claude Design | 실제 구현 |
 |---|---|---|---|
