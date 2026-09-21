@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 import { measure, ZONE_VERSION, type RawPoint } from "@/domain/measure";
 import { getDb } from "@/server/db/client";
@@ -155,27 +155,34 @@ async function finalizeSession(
       }
 
       /*
-        측정 지점의 `in_zone` · `excluded_from_prev_reason` 을 확정한다. 점마다 한 번씩
-        UPDATE 한다 — 한 러닝의 점은 많아야 수천 개라 아직 문제가 되지 않는다(느려지면
-        `VALUES` 기반 batch UPDATE 로 바꾼다 · `useRunTracker.ts` 의 같은 트레이드오프).
-      */
-      for (const point of result.routePoints) {
-        if (point.kind !== "measured") continue;
+        측정 지점의 `in_zone` · `excluded_from_prev_reason` 을 확정한다. **UPDATE 를 1회만
+        보낸다** — 점마다 하나씩 보내면 DB 왕복 수가 점 수에 비례하고, 왕복 1회가 수백 ms 인
+        배포 환경에서는 긴 러닝이 함수 타임아웃에 걸려 영영 저장되지 않는다(#224).
 
-        await tx
-          .update(routePoints)
-          .set({
-            inZone: point.inZone,
-            excludedFromPrevReason: point.excludedFromPrevReason,
-          })
-          .where(
-            and(
-              eq(routePoints.sessionId, session.id),
-              eq(routePoints.trackerGeneration, point.trackerGeneration),
-              eq(routePoints.rawSeq, point.rawSeq),
-              eq(routePoints.ordinal, 0),
-            ),
-          );
+        `VALUES` 목록이 아니라 컬럼별 배열 + `unnest` 를 쓴다. `VALUES` 는 bind parameter 가
+        점 × 4개라 아주 긴 러닝에서 Postgres 의 파라미터 상한에 닿는데, 배열은 점 수와 무관하게
+        5개다. drizzle 의 `sql` 은 JS 배열을 `(a, b, c)` 튜플로 펼치므로, 배열 하나를 파라미터
+        하나로 넘기려면 `sql.param` 으로 감싼다.
+      */
+      const measured = result.routePoints.filter(
+        (point) => point.kind === "measured",
+      );
+      if (measured.length > 0) {
+        await tx.execute(sql`
+          update route_points
+             set in_zone = v.in_zone,
+                 excluded_from_prev_reason = v.excluded_from_prev_reason
+            from unnest(
+                   ${sql.param(measured.map((point) => point.trackerGeneration))}::integer[],
+                   ${sql.param(measured.map((point) => point.rawSeq))}::integer[],
+                   ${sql.param(measured.map((point) => point.inZone))}::boolean[],
+                   ${sql.param(measured.map((point) => point.excludedFromPrevReason))}::text[]
+                 ) as v(tracker_generation, raw_seq, in_zone, excluded_from_prev_reason)
+           where route_points.session_id = ${session.id}::uuid
+             and route_points.tracker_generation = v.tracker_generation
+             and route_points.raw_seq = v.raw_seq
+             and route_points.ordinal = 0
+        `);
       }
 
       const totalDistanceM = Math.round(result.totalDistanceM);
