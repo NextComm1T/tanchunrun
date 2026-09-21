@@ -148,13 +148,15 @@ flowchart LR
 
 ### 디자인 vs 구현
 
-<!-- TODO(#209): docs/images/ 에 캡처를 넣고 아래 표를 채운다 -->
+<!-- TODO(#209): 피그마 · Claude Design 캡처를 docs/images/ 에 넣고 빈 칸을 채운다 -->
+
+실제 구현은 integration 배포에서 찍었다. 지도는 NAVER Maps 실제 타일이고, 경로는 탄천 Ranking Zone 안에서 시작해 Zone 밖으로 나가는 0.44km 러닝이다.
 
 | 화면 | 피그마 | Claude Design | 실제 구현 |
 |---|---|---|---|
-| 홈 — 달리기 탭 | | | |
-| 러닝 진행 | | | |
-| 결과 | | | |
+| 홈 — 달리기 탭 | | | ![홈 달리기 탭](docs/images/real-home.png) |
+| 러닝 진행 | | | ![러닝 진행](docs/images/real-running.png) |
+| 결과 | | | ![결과](docs/images/real-result.png) |
 
 ### 디자인 시스템을 바꿨을 때
 
@@ -413,6 +415,14 @@ gitGraph
 5. **종료** — 결과 화면에 6항목 + 경로 지도. **Zone 안 구간과 밖 구간이 다른 색으로 갈린다**
 6. **랭킹 탭** — 누적 탄천 인정 거리 기준 순위, 본인 줄 강조
 7. **기록 탭 → 기록 상세** — 누적 거리 2종 · 개인 최고 기록 3종 · 세션 목록 → 선택하면 그날 경로를 다시 본다
+
+### 화면
+
+| 로그인 | 랭킹 탭 | 기록 탭 |
+|---|---|---|
+| ![로그인](docs/images/real-login.png) | ![랭킹](docs/images/real-ranking.png) | ![기록](docs/images/real-records.png) |
+
+랭킹은 본인 줄을 강조하고(F5), 기록 탭은 누적 2종·개인 최고 기록 3종·세션 목록을 함께 보여 준다(F7). 목록의 `탄천 외` 배지는 Zone 밖에서만 달려 랭킹에 반영되지 않은 세션이다.
 
 ### 현재 검증 상태
 
