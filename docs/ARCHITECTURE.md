@@ -314,6 +314,28 @@ MVP 는 **Web-only Next.js** 다. native wrapper · background location 은 MVP 
 - **Screen Wake Lock 은 best-effort 다.** 실패 · 미지원 · 브라우저의 해제는 러닝 실패가 아니다.
 - 기획 문서의 「화면이 꺼지거나 다른 앱으로 전환된 동안에도 측정은 계속」(`docs/06-data.md:22` · `docs/07-screens.md:36`)과 다르다. 차이는 [modify/2026-09-16-background-gps.md](../modify/2026-09-16-background-gps.md) 에 있다.
 
+## 함수 리전 — DB 와 같은 곳에서 돈다 (#224)
+
+루트 `vercel.json` 이 Vercel 함수를 **`sin1`(싱가포르)** 로 고정한다. Neon 이
+`ap-southeast-1`(싱가포르)에 있어서다.
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["sin1"]
+}
+```
+
+**리전을 안 정하면 기본값이 `iad1`(미국 동부)이다.** 그러면 DB statement 1회가 대륙을
+건너 ~300ms 가 되고, 왕복이 여러 번인 경로가 초 단위로 느려진다. 실제로 러닝 종료가
+점 수에 비례해 느려져 긴 러닝이 함수 타임아웃에 걸렸다(#224).
+
+- **이 값을 지우거나 바꾸지 않는다.** 바꾸려면 Neon 리전을 함께 옮겨야 한다.
+- Hobby plan 은 **단일 리전**만 고를 수 있다. 배열에 둘 이상을 넣으면 빌드 전에 배포가 실패한다.
+- `functionFailoverRegions` 는 Enterprise 전용이라 쓰지 않는다.
+- **서버 코드는 DB 왕복 횟수를 먼저 센다.** 같은 리전이어도 N 에 비례하는 왕복은 N 에 비례해
+  느려진다 — 점마다 도는 UPDATE·SELECT 는 한 문장으로 묶는다(`src/server/runs/finish.ts` 가 그 예다).
+
 ## 아직 없는 것
 
 - **MVP Gate 실측** — 실제 OAuth · GPS 로 연속 시나리오 · 실패 A/B · 다기기 · 탈퇴 삭제를 아직 돌리지 않았다(#89). 절차와 현재 판정은 [modify/2026-09-17-mvp-backend-gate.md](../modify/2026-09-17-mvp-backend-gate.md).
