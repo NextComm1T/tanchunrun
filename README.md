@@ -345,6 +345,14 @@ gitGraph
 
 템플릿은 실제로 쓰였다 — [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/) 3종(`bug` · `feature` · `task`) · [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) · [`.github/CODEOWNERS`](.github/CODEOWNERS).
 
+![이슈 목록 — 담당자·라벨](docs/images/issues.png)
+
+이슈마다 담당자와 라벨(`묶음:A-가입` ~ `묶음:D-설정`, `feature` · `chore` · `refactor` · `test` · `docs` · `priority:high` · `blocked` · `ready-for-review`)이 붙어 있다.
+
+![PR #187 — 리뷰 코멘트](docs/images/pr.png)
+
+**[#187](https://github.com/NextComm1T/tanchunrun/pull/187)** — 리뷰어가 변경 사항을 항목별로 대조 확인한 뒤 남은 이슈 2건을 명시하고 merge했다.
+
 ### 역할 분담
 
 | 팀원 | 담당 영역 | 주요 PR |
