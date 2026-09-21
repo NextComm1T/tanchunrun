@@ -8,7 +8,7 @@
 | 팀원 | [@wol20670](https://github.com/wol20670) (PM·기획·하네스·통합), [@eunjung01230](https://github.com/eunjung01230) (인증·세션 백엔드·화면), [@SeungBinYang](https://github.com/SeungBinYang) (디자인 반입·측정 도메인·CI), [@softy20](https://github.com/softy20) (러닝 종료·결과 흐름) |
 | 기간 | 2026.09.08 ~ 2026.09.19 |
 | 배포 링크 | https://tanchunrun.vercel.app |
-| 피그마 | <!-- TODO(#209): 피그마 파일 URL --> |
+| 피그마 | [앱 디자인 제작 요청](https://www.figma.com/make/yTwCBG4Tu3RZqIo9gnfEpC/%EC%95%B1-%EB%94%94%EC%9E%90%EC%9D%B8-%EC%A0%9C%EC%9E%91-%EC%9A%94%EC%B2%AD) (Figma Make) |
 | Claude Design | 추출본 [`탄천런.dc.html`](탄천런.dc.html) · 브랜드 지도 [`TancheonMapBrand.dc.html`](TancheonMapBrand.dc.html) |
 | 기술 스택 | Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4 · PostgreSQL 17 · Drizzle ORM · openid-client (OIDC) |
 
@@ -148,15 +148,15 @@ flowchart LR
 
 ### 디자인 vs 구현
 
-<!-- TODO(#209): 피그마 · Claude Design 캡처를 docs/images/ 에 넣고 빈 칸을 채운다 -->
-
 실제 구현은 integration 배포에서 찍었다. 지도는 NAVER Maps 실제 타일이다. 러닝은 **탄천 Ranking Zone 안에서 출발해 Zone 밖으로 나가도록** 만들어, 총 거리와 탄천 인정 거리가 갈리는 장면을 담았다 — 세 장 모두 같은 러닝이고, 러닝 진행은 달리는 도중(0.49km 중 0.34km 인정) · 결과는 종료 시점(0.55km 중 0.34km 인정)이다.
+
+피그마 칸은 Figma Make 초안, Claude Design 칸은 구현 기준인 [`탄천런.dc.html`](탄천런.dc.html)이다. 셋 다 **같은 흐름을 직접 밟아** 찍었다 — 로그인 → 홈 → 러닝 시작 → 종료. 세 칸의 배치(상단 인사 · 지도 카드 · 하단 CTA · 3탭)와 Zone 안팎을 가르는 규칙은 그대로 이어졌고, 색·타이포·아이콘이 단계마다 정리됐다.
 
 | 화면 | 피그마 | Claude Design | 실제 구현 |
 |---|---|---|---|
-| 홈 — 달리기 탭 | | | ![홈 달리기 탭](docs/images/real-home.png) |
-| 러닝 진행 | | | ![러닝 진행](docs/images/real-running.png) |
-| 결과 | | | ![결과](docs/images/real-result.png) |
+| 홈 — 달리기 탭 | ![홈 달리기 탭 피그마](docs/images/figma-home.png) | ![홈 달리기 탭 디자인](docs/images/cdesign-home.png) | ![홈 달리기 탭](docs/images/real-home.png) |
+| 러닝 진행 | ![러닝 진행 피그마](docs/images/figma-running.png) | ![러닝 진행 디자인](docs/images/cdesign-running.png) | ![러닝 진행](docs/images/real-running.png) |
+| 결과 | ![결과 피그마](docs/images/figma-result.png) | ![결과 디자인](docs/images/cdesign-result.png) | ![결과](docs/images/real-result.png) |
 
 ### 디자인 시스템을 바꿨을 때
 
@@ -345,6 +345,14 @@ gitGraph
 
 템플릿은 실제로 쓰였다 — [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/) 3종(`bug` · `feature` · `task`) · [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) · [`.github/CODEOWNERS`](.github/CODEOWNERS).
 
+![이슈 목록 — 담당자·라벨](docs/images/issues.png)
+
+이슈마다 담당자와 라벨(`묶음:A-가입` ~ `묶음:D-설정`, `feature` · `chore` · `refactor` · `test` · `docs` · `priority:high` · `blocked` · `ready-for-review`)이 붙어 있다.
+
+![PR #187 — 리뷰 코멘트](docs/images/pr.png)
+
+**[#187](https://github.com/NextComm1T/tanchunrun/pull/187)** — 리뷰어가 변경 사항을 항목별로 대조 확인한 뒤 남은 이슈 2건을 명시하고 merge했다.
+
 ### 역할 분담
 
 | 팀원 | 담당 영역 | 주요 PR |
@@ -454,25 +462,37 @@ gitGraph
 
 ### 잘 된 점
 
-<!-- TODO(#212): 팀원 직접 작성 — 구체적 사례 1개 이상 -->
+**화면을 병렬로 만드는 동안 부딪힌 적이 없었다. 공용 걸 먼저 끝내서다.**
+
+화면 18개를 묶음 A~D로 나눠 병렬로 들어가기 전에, 공용 하단 탭바([`BottomNav`](src/components/shared/BottomNav.tsx) · #34)를 먼저 끝냈다. 그 뒤에 내 담당 화면 6개(개인정보 동의 상세 · 프로필 설정 · 닉네임 수정 · 회원탈퇴 · 홈 랭킹 탭 · 기록 상세)를 만들었는데, 작업하는 동안 다른 사람 코드와 부딪힌 적이 없었다.
+
+탭바를 먼저 안 만들었으면 화면마다 각자 그렸을 거다.
 
 ### 실패 사례와 개선
 
-<!-- TODO(#212): 팀원 직접 작성 — 아래 표를 채운다 -->
+둘 다 **정상 경로에서는 보이지 않는 실패**였다. 코드 리뷰에서 걸린 게 아니라 하나는 MVP Gate 실측에서, 하나는 탭을 두 개 열어 보고 나왔다.
 
 | 무엇이 실패했나 | 왜 | 어떻게 고쳤나 |
 |---|---|---|
-| | | |
+| **완전 오프라인에서 러닝을 종료하면 브라우저 오류 페이지로 튕겼고, 온라인으로 돌아와도 저장이 진행되지 않았다** (#147 · [`60b9922`](https://github.com/NextComm1T/tanchunrun/commit/60b9922)) | 결과 화면이 서버 렌더라 오프라인에서 `replace`하면 RSC 요청이 실패해 `chrome-error` 페이지가 된다. 튕긴 페이지에는 앱 JS가 없어 **복구 로직 자체가 돌 수 없었다.** 정상 경로만 보면 안 보인다 — [MVP Gate 2차 실측(#89 F4)](modify/2026-09-17-mvp-backend-gate.md)에서 나왔다 | 이동하기 전에 결과 화면에 닿을 수 있는지 먼저 확인하고, 못 나가면 **러닝 화면에 남아** 대기 안내와 「지금 다시 시도」를 보인다. `online` 이벤트에서도 같은 확인을 다시 거친다 — `navigator.onLine`이 `true`여도 실제로는 못 나가는 경우가 있다. 대기 상태를 기존 `failed`와 합치지 않았다(뜻이 달라 「다시 밀어서 종료해 주세요」라는 틀린 안내가 된다). service worker · PWA는 도입하지 않았고, 차이는 [`modify/2026-09-18-running-finish.md`](modify/2026-09-18-running-finish.md)에 남겼다 |
+| **탭을 두 개 열어 두면, 다른 탭이 먼저 저장을 끝낸 뒤에도 이 탭은 「아직 저장하지 못했어요」를 띄운 채 영원히 재시도했다** (#192 · [`853b4ee`](https://github.com/NextComm1T/tanchunrun/commit/853b4ee)) | `runRetryFinalization`이 `/retry` 응답을 `ok`와 `429`만 구분하고 **나머지를 전부 던져** 백오프로 보냈다. 서버의 `404 not_found`는 세션이 없거나 이미 `saved`라 **다시 해도 결과가 같은데**, 일시 실패와 같은 취급을 받았다 | `404`면 백오프를 멈추고 `deleteRunData`로 세션의 로컬 자취를 지운 뒤 `router.refresh()`로 **서버 판정에 맡긴다.** 404의 이유를 클라이언트가 가려내지 않는다. `429` · 네트워크 실패 · `5xx`는 그대로 재시도한다 |
 
 ### 팀 안에서 공유한 Claude 활용 노하우
 
-<!-- TODO(#212): 팀원 직접 작성 -->
+**규칙을 말로 전달하지 않고 파일로 고정한 것**이 컸다. 각자 자기 Claude 세션을 돌리는데, 세션마다 다른 답을 내면 합칠 때 터진다.
 
-저장소에 들어 있는 것: [`docs/CLAUDE_PROMPTS.md`](docs/CLAUDE_PROMPTS.md) (팀원용 복사-붙여넣기 프롬프트 모음) · [`.claude/skills/`](.claude/skills/) 6개 · [`.claude/rules/`](.claude/rules/) 5개
+| 실물 | 무엇을 고정했나 |
+|---|---|
+| [`docs/CLAUDE_PROMPTS.md`](docs/CLAUDE_PROMPTS.md) | 팀원용 복사-붙여넣기 프롬프트. `<>` 안만 자기 것으로 바꿔 쓴다. 저장소를 처음 받았을 때(§0)부터 backend 구현(§4)까지 |
+| [`.claude/rules/`](.claude/rules/) 5개 | `code-quality` · `git-workflow` · `scope-control` · `security` · `testing`. 규칙을 주제별로 쪼개서 `CLAUDE.md`가 비대해지지 않게 했다 |
+| [`.claude/skills/`](.claude/skills/) 6개 | `deploy-check` · `fix-bug` · `implement-feature` · `prepare-pr` · `review-brief` · `review-pr`. 반복 절차를 파일로 고정했다 |
+| [`modify/`](modify/) 44건 | 기획과 구현이 갈린 지점을 **문서를 고치는 대신 기록**했다. 「문서가 말하는 것 / 실제로 한 것 / 고쳐야 할 문서 위치」 세 줄 양식 |
 
 ### 다음 프로젝트에서 다르게 할 것
 
-<!-- TODO(#212): 팀원 직접 작성 — "더 열심히"가 아니라 실행 가능한 행동으로 -->
+- **정상 경로만 보고 끝내지 않는다.** 위 두 건 다 오프라인·다중 탭처럼 정상 경로 **밖**에서 나왔고, 코드 리뷰가 아니라 실측에서 잡혔다. 다음에는 기능마다 「네트워크가 없을 때 · 같은 화면을 두 개 열었을 때」를 구현 시점에 함께 적어 두고 그 자리에서 확인한다.
+- **병렬로 나누기 전에 공용 컴포넌트를 먼저 확정하고 머지한다.** 이번에는 탭바(#34)·지도(#33)를 먼저 끝내서 충돌이 없었다. 다음에도 순서를 이렇게 둔다.
+- **기준이 둘이면(기획 문서 vs 디자인) 작업 시작 전에 하나로 정하고 `CLAUDE.md`에 적는다.** 이번에는 화면마다 판단이 갈린 뒤에야 정했다(§10, 2026-09-14).
 
 ---
 
