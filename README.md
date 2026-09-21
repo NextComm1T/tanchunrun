@@ -8,7 +8,7 @@
 | 팀원 | [@wol20670](https://github.com/wol20670) (PM·기획·하네스·통합), [@eunjung01230](https://github.com/eunjung01230) (인증·세션 백엔드·화면), [@SeungBinYang](https://github.com/SeungBinYang) (디자인 반입·측정 도메인·CI), [@softy20](https://github.com/softy20) (러닝 종료·결과 흐름) |
 | 기간 | 2026.09.08 ~ 2026.09.19 |
 | 배포 링크 | https://tanchunrun.vercel.app |
-| 피그마 | <!-- TODO: 피그마 파일 URL --> |
+| 피그마 | <!-- TODO(#209): 피그마 파일 URL --> |
 | Claude Design | 추출본 [`탄천런.dc.html`](탄천런.dc.html) · 브랜드 지도 [`TancheonMapBrand.dc.html`](TancheonMapBrand.dc.html) |
 | 기술 스택 | Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4 · PostgreSQL 17 · Drizzle ORM · openid-client (OIDC) |
 
@@ -148,7 +148,7 @@ flowchart LR
 
 ### 디자인 vs 구현
 
-<!-- TODO: docs/images/ 에 캡처를 넣고 아래 표를 채운다 -->
+<!-- TODO(#209): docs/images/ 에 캡처를 넣고 아래 표를 채운다 -->
 
 | 화면 | 피그마 | Claude Design | 실제 구현 |
 |---|---|---|---|
@@ -363,7 +363,7 @@ gitGraph
 
 ### 충돌 해결 사례
 
-<!-- TODO: 팀원이 실제 겪은 충돌을 1건 이상 직접 작성. 아래는 발생 지점 후보 -->
+<!-- TODO(#211): 팀원이 실제 겪은 충돌을 1건 이상 직접 작성. 아래는 발생 지점 후보 -->
 <!-- 후보: feat/45-record-detail · feat/79-auth-db · feat/80-signup-nickname · feat/81-run-session-start -->
 <!--       위 4개 브랜치는 PR 전에 develop을 다시 머지한 이력이 있다 (git log --merges) -->
 
@@ -410,11 +410,11 @@ gitGraph
 
 ### 잘 된 점
 
-<!-- TODO: 팀원 직접 작성 — 구체적 사례 1개 이상 -->
+<!-- TODO(#212): 팀원 직접 작성 — 구체적 사례 1개 이상 -->
 
 ### 실패 사례와 개선
 
-<!-- TODO: 팀원 직접 작성 — 아래 표를 채운다 -->
+<!-- TODO(#212): 팀원 직접 작성 — 아래 표를 채운다 -->
 
 | 무엇이 실패했나 | 왜 | 어떻게 고쳤나 |
 |---|---|---|
@@ -422,13 +422,13 @@ gitGraph
 
 ### 팀 안에서 공유한 Claude 활용 노하우
 
-<!-- TODO: 팀원 직접 작성 -->
+<!-- TODO(#212): 팀원 직접 작성 -->
 
 저장소에 들어 있는 것: [`docs/CLAUDE_PROMPTS.md`](docs/CLAUDE_PROMPTS.md) (팀원용 복사-붙여넣기 프롬프트 모음) · [`.claude/skills/`](.claude/skills/) 6개 · [`.claude/rules/`](.claude/rules/) 5개
 
 ### 다음 프로젝트에서 다르게 할 것
 
-<!-- TODO: 팀원 직접 작성 — "더 열심히"가 아니라 실행 가능한 행동으로 -->
+<!-- TODO(#212): 팀원 직접 작성 — "더 열심히"가 아니라 실행 가능한 행동으로 -->
 
 ---
 
