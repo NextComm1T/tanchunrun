@@ -8,7 +8,7 @@
 | 팀원 | [@wol20670](https://github.com/wol20670) (PM·기획·하네스·통합), [@eunjung01230](https://github.com/eunjung01230) (인증·세션 백엔드·화면), [@SeungBinYang](https://github.com/SeungBinYang) (디자인 반입·측정 도메인·CI), [@softy20](https://github.com/softy20) (러닝 종료·결과 흐름) |
 | 기간 | 2026.09.08 ~ 2026.09.19 |
 | 배포 링크 | https://tanchunrun.vercel.app |
-| 피그마 | <!-- TODO(#209): 피그마 파일 URL --> |
+| 피그마 | [앱 디자인 제작 요청](https://www.figma.com/make/yTwCBG4Tu3RZqIo9gnfEpC/%EC%95%B1-%EB%94%94%EC%9E%90%EC%9D%B8-%EC%A0%9C%EC%9E%91-%EC%9A%94%EC%B2%AD) (Figma Make) |
 | Claude Design | 추출본 [`탄천런.dc.html`](탄천런.dc.html) · 브랜드 지도 [`TancheonMapBrand.dc.html`](TancheonMapBrand.dc.html) |
 | 기술 스택 | Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS v4 · PostgreSQL 17 · Drizzle ORM · openid-client (OIDC) |
 
@@ -148,15 +148,15 @@ flowchart LR
 
 ### 디자인 vs 구현
 
-<!-- TODO(#209): 피그마 · Claude Design 캡처를 docs/images/ 에 넣고 빈 칸을 채운다 -->
-
 실제 구현은 integration 배포에서 찍었다. 지도는 NAVER Maps 실제 타일이다. 러닝은 **탄천 Ranking Zone 안에서 출발해 Zone 밖으로 나가도록** 만들어, 총 거리와 탄천 인정 거리가 갈리는 장면을 담았다 — 세 장 모두 같은 러닝이고, 러닝 진행은 달리는 도중(0.49km 중 0.34km 인정) · 결과는 종료 시점(0.55km 중 0.34km 인정)이다.
+
+피그마 칸은 Figma Make 초안, Claude Design 칸은 구현 기준인 [`탄천런.dc.html`](탄천런.dc.html)이다. 셋 다 **같은 흐름을 직접 밟아** 찍었다 — 로그인 → 홈 → 러닝 시작 → 종료. 세 칸의 배치(상단 인사 · 지도 카드 · 하단 CTA · 3탭)와 Zone 안팎을 가르는 규칙은 그대로 이어졌고, 색·타이포·아이콘이 단계마다 정리됐다.
 
 | 화면 | 피그마 | Claude Design | 실제 구현 |
 |---|---|---|---|
-| 홈 — 달리기 탭 | | | ![홈 달리기 탭](docs/images/real-home.png) |
-| 러닝 진행 | | | ![러닝 진행](docs/images/real-running.png) |
-| 결과 | | | ![결과](docs/images/real-result.png) |
+| 홈 — 달리기 탭 | ![홈 달리기 탭 피그마](docs/images/figma-home.png) | ![홈 달리기 탭 디자인](docs/images/cdesign-home.png) | ![홈 달리기 탭](docs/images/real-home.png) |
+| 러닝 진행 | ![러닝 진행 피그마](docs/images/figma-running.png) | ![러닝 진행 디자인](docs/images/cdesign-running.png) | ![러닝 진행](docs/images/real-running.png) |
+| 결과 | ![결과 피그마](docs/images/figma-result.png) | ![결과 디자인](docs/images/cdesign-result.png) | ![결과](docs/images/real-result.png) |
 
 ### 디자인 시스템을 바꿨을 때
 
