@@ -150,7 +150,7 @@ flowchart LR
 
 <!-- TODO(#209): 피그마 · Claude Design 캡처를 docs/images/ 에 넣고 빈 칸을 채운다 -->
 
-실제 구현은 integration 배포에서 찍었다. 지도는 NAVER Maps 실제 타일이다. 러닝은 **탄천 Ranking Zone 안에서 출발해 Zone 밖으로 나가도록** 만들어, 총 거리와 탄천 인정 거리가 갈리는 장면을 담았다 — 러닝 진행은 0.50km 중 0.34km 인정, 결과는 0.44km 중 0.34km 인정이다(서로 다른 세션이다).
+실제 구현은 integration 배포에서 찍었다. 지도는 NAVER Maps 실제 타일이다. 러닝은 **탄천 Ranking Zone 안에서 출발해 Zone 밖으로 나가도록** 만들어, 총 거리와 탄천 인정 거리가 갈리는 장면을 담았다 — 세 장 모두 같은 러닝이고, 러닝 진행은 달리는 도중(0.49km 중 0.34km 인정) · 결과는 종료 시점(0.55km 중 0.34km 인정)이다.
 
 | 화면 | 피그마 | Claude Design | 실제 구현 |
 |---|---|---|---|
@@ -418,11 +418,13 @@ gitGraph
 
 ### 화면
 
-| 로그인 | 랭킹 탭 | 기록 탭 |
-|---|---|---|
-| ![로그인](docs/images/real-login.png) | ![랭킹](docs/images/real-ranking.png) | ![기록](docs/images/real-records.png) |
+| 로그인 | 랭킹 탭 | 기록 탭 | 회원탈퇴 |
+|---|---|---|---|
+| ![로그인](docs/images/real-login.png) | ![랭킹](docs/images/real-ranking.png) | ![기록](docs/images/real-records.png) | ![회원탈퇴](docs/images/real-withdraw-confirm.png) |
 
-랭킹은 본인 줄을 강조하고(F5), 기록 탭은 누적 2종·개인 최고 기록 3종·세션 목록을 함께 보여 준다(F7). 목록의 `탄천 외` 배지는 Zone 밖에서만 달려 랭킹에 반영되지 않은 세션이다.
+랭킹은 본인 줄을 강조하고(F5), 기록 탭은 누적 2종·개인 최고 기록 3종·세션 목록을 함께 보여 준다(F7).
+
+회원탈퇴 화면은 **무엇이 지워지는지 7항목을 먼저 보여 주고** 한 번 더 확인을 받는다(F13·P13). 이 캡처들은 실제로 탈퇴를 실행해 얻은 것이다 — 계정·러닝·경로·랭킹 반영이 모두 사라지고 로그인 화면으로 돌아가는 것까지 확인했다.
 
 ### 현재 검증 상태
 
