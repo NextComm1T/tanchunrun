@@ -6,7 +6,7 @@
 |---|---|
 | 팀명 | NextComm1T |
 | 팀원 | [@wol20670](https://github.com/wol20670) (PM·기획·하네스·통합), [@eunjung01230](https://github.com/eunjung01230) (인증·세션 백엔드·화면), [@SeungBinYang](https://github.com/SeungBinYang) (디자인 반입·측정 도메인·CI), [@softy20](https://github.com/softy20) (러닝 종료·결과 흐름) |
-| 기간 | 2026.09.08 ~ 2026.09.19 |
+| 기간 | 2026.09.08 ~ 2026.09.21 |
 | 배포 링크 | https://tanchunrun.vercel.app |
 | 피그마 | [앱 디자인 제작 요청](https://www.figma.com/make/yTwCBG4Tu3RZqIo9gnfEpC/%EC%95%B1-%EB%94%94%EC%9E%90%EC%9D%B8-%EC%A0%9C%EC%9E%91-%EC%9A%94%EC%B2%AD) (Figma Make) |
 | Claude Design | 추출본 [`탄천런.dc.html`](탄천런.dc.html) · 브랜드 지도 [`TancheonMapBrand.dc.html`](TancheonMapBrand.dc.html) |
@@ -281,6 +281,14 @@ CI([`.github/workflows/ci.yml`](.github/workflows/ci.yml))가 PR과 `develop`·`
 - **무엇이 틀렸나**: `drizzle.config.ts`가 `DATABASE_URL`(pooled)을 집어서, PgBouncer transaction mode에서 DDL이 실패하거나 조용히 이상하게 돌 수 있었다. **migration이 반쯤 적용된 상태는 실패보다 훨씬 비싸다**
 - **어떻게 고쳤나**: `DATABASE_URL_UNPOOLED`를 먼저 집고, pooled밖에 없으면 **오류로 멈추게** 했다. 조용히 진행하지 않는 쪽을 택했다
 
+**사례 3 — 15분 넘는 러닝이 저장되지 않던 결함 (#224 → #225)**
+
+- **어디서 발견**: 발표용 캡처를 찍으려고 실제로 달려 보다가. 종료가 느린 게 아니라 **일정 길이를 넘으면 영영 저장되지 않는** MVP 결함이었다. 짧은 러닝만 돌려 본 그때까지의 검증에서는 보이지 않았다
+- **무엇이 틀렸나**: 두 가지가 곱해졌다. ① 저장소에 `vercel.json`이 없어 함수가 기본 리전 `iad1`(미국 동부)에서 도는데 Neon은 `ap-southeast-1`(싱가포르)이라 **DB statement 1회가 ~300ms**였고, ② 종료 처리가 GPS 점마다 UPDATE를 순차 `await`해 왕복이 점 수에 비례했다. 25점 9.6초 · 139점 ~50초로 **선형**이었고(브라우저 Performance API 실측), 기본 타임아웃 300초를 넘기면 저장이 실패했다
+- **어떻게 고쳤나**: 함수를 DB와 같은 리전(`sin1`)으로 고정하고, 점별 UPDATE를 `VALUES` 기반 batch 한 문장으로 묶었다. **코드 주석이 이미 "느려지면 batch UPDATE로 바꾼다"고 처방을 적어 둔 자리**였다 — 그때는 점이 몇 개 안 됐을 뿐이다. 리전은 지우면 기본값으로 되돌아가므로 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 「함수 리전」에 "이 값을 지우거나 바꾸지 않는다"와 그 이유를 남겼다
+
+세 사례의 공통점은 **정상 경로에서는 보이지 않았다**는 것이다. 사례 1은 판정 절차, 사례 3은 시연 준비에서 나왔다.
+
 ### 기획과 구현이 갈린 지점을 버리지 않았다 — `modify/` 44개
 
 구현이 기획 문서와 다를 때 **문서를 고치지 않고** [`modify/YYYY-MM-DD-<화면>.md`](modify/)에 세 줄로 남긴다.
@@ -335,11 +343,13 @@ gitGraph
 
 ### 규모
 
+2026-09-21 기준이다. 이 표를 고친 PR과 그 승격은 아직 세지 않았다.
+
 | 항목 | 수 |
 |---|---|
-| 이슈 | 95개 |
-| merge된 PR | 105개 |
-| `develop` → `main` 승격 PR | 9회 (#71 · #107 · #157 · #169 · #183 · #189 · #198 · #205 · #207) |
+| 이슈 | 104개 |
+| merge된 PR | 117개 |
+| `develop` → `main` 승격 PR | 12회 (#71 · #107 · #157 · #169 · #183 · #189 · #198 · #205 · #207 · #219 · #221 · #227) |
 | 기여자 | 4명 전원이 PR·커밋 보유 |
 | 라벨 | 기본 + 팀 정의 `feature` `chore` `refactor` `test` `docs` `priority:high` `blocked` `ready-for-review` + 화면 묶음 `묶음:A-가입` ~ `묶음:D-설정` |
 
