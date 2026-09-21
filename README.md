@@ -363,9 +363,34 @@ gitGraph
 
 ### 충돌 해결 사례
 
-<!-- TODO(#211): 팀원이 실제 겪은 충돌을 1건 이상 직접 작성. 아래는 발생 지점 후보 -->
-<!-- 후보: feat/45-record-detail · feat/79-auth-db · feat/80-signup-nickname · feat/81-run-session-start -->
-<!--       위 4개 브랜치는 PR 전에 develop을 다시 머지한 이력이 있다 (git log --merges) -->
+저장소의 머지 커밋 22건을 전부 재현해(`git merge-tree --write-tree`) 충돌이 났던 자리를 찾았다. **5건**이고,
+해결 근거는 모두 머지 커밋 메시지에 남아 있다.
+
+#### 사례 1 — 두 사람이 같은 파일을 동시에 만들었다
+
+- **어느 파일**: `src/app/records/mock.ts` — 머지 [`1696a87`](https://github.com/NextComm1T/tanchunrun/commit/1696a87) (`develop` → `feat/45-record-detail`, 2026-09-15)
+- **왜 생겼나**: 기록 탭(#44)과 기록 상세(#45)가 **같은 세션 mock 을 각자 만들었다.** 같은 날 #44 가 `develop` 에 먼저 들어갔고, #45 는 이미 같은 경로에 자기 버전을 갖고 있었다. 공통 조상에 그 파일이 없어 git 이 병합할 기준을 잡지 못하는 `add/add` 충돌이 났다
+- **어떻게 해결했나**: 한쪽을 버리지 않고 **손으로 합쳤다.** `develop` 쪽 타입 계약(세션 `s1`~`s6` · 필드명 `totalDistanceKm` · `tancheonDistanceKm` · `durationSec` · `paceSecPerKm` · `PersonalBest` · empty 상태)을 그대로 두고, 기록 상세에만 필요한 `route`와 `findSession`을 **확장**했다. 결과적으로 두 화면이 같은 세션 데이터를 공유하게 되면서 계약이 하나로 정리됐다
+
+#### 사례 2 — 내용은 안 겹치는데 이력 때문에 났다
+
+- **어느 파일**: `src/server/db/schema.ts` · `src/server/auth/identity.ts` · `src/server/auth/session.ts` · `drizzle/meta/_journal.json` — 머지 [`9c41e1a`](https://github.com/NextComm1T/tanchunrun/commit/9c41e1a) (`develop` → `feat/80-signup-nickname`, 2026-09-16)
+- **왜 생겼나**: `feat/80`은 `feat/79`(DB·인증 기반) 위에 쌓아 올린 **stacked PR** 이었다. #79 가 PR #92 로 **squash merge** 되면서 `develop` 에 원래 이력과 이어지지 않는 새 커밋이 하나 생겼고, 그 커밋이 `feat/80` 이력에는 없어서 같은 파일이 양쪽에서 "새로 추가된" 것처럼 보였다. **내용이 겹쳐서 난 충돌이 아니라 squash merge 의 이력 artifact 다**
+- **어떻게 해결했나**: `develop` 쪽 네 파일이 이 브랜치가 이미 흡수한 #79 최종본과 **blob 해시까지 동일한 것을 확인한 뒤** 브랜치 쪽으로 해결했다. 브랜치 쪽 = #79 최종본 + #80 의 추가 변경이므로 #79 의 변경은 하나도 잃지 않는다. 머지 결과 tree 가 머지 이전 tree 와 완전히 같아 **내용 변화가 0** 임을 확인했고 `npm run lint` · `npm test` · `npm run build` 로 검증했다
+
+#### 나머지 3건
+
+| 머지 | 어느 파일 | 왜 | 어떻게 |
+|---|---|---|---|
+| [`4cd109b`](https://github.com/NextComm1T/tanchunrun/commit/4cd109b) `design-ysb` → `main` | `.claude/agents/planning-partner.md` · `product-planner.md` · `docs/06-backlog.md` | Claude Design 반입 브랜치가 파일을 `uploads/` 아래로 옮기는 동안 `main` 은 같은 파일을 수정 → `modify/delete` · `rename/delete` | 강사가 제공한 에이전트 정의는 **임의로 고치지 않는다**는 규칙에 따라 `main` 버전 유지. 백로그는 `main`의 `docs/00-backlog.md`를 본체로 두고 `uploads/` 사본은 원본으로 남김 |
+| [`c0e2bff`](https://github.com/NextComm1T/tanchunrun/commit/c0e2bff) `develop` → `feat/79-auth-db` | `package.json` · `package-lock.json` · `docs/PROJECT_COMMANDS.md` | #82(측정 도메인)가 `vitest`를, #79 가 `drizzle-orm` · `openid-client` · `pg`를 **같은 `scripts` · `dependencies` 블록**에 추가 | 양쪽 **합집합**으로 해결. `package-lock.json`은 손으로 고치지 않고 합쳐진 `package.json`으로 `npm install` 재생성 |
+| [`3fcb781`](https://github.com/NextComm1T/tanchunrun/commit/3fcb781) `develop` → `feat/81-run-session-start` | 사례 2의 4개 + `src/app/page.tsx` · `src/app/settings/LogoutRow.tsx` | 사례 2와 같은 원인 — 이번엔 #80 이 squash merge 되며 `feat/81` 이력에 없는 커밋이 생김 | 사례 2와 같은 절차(blob 해시 대조 → 브랜치 쪽 채택 → tree 변화 0 확인) |
+
+#### 충돌을 줄이려고 한 것
+
+- 화면 18개를 병렬로 만들었는데 **화면 코드에서 난 충돌은 `mock.ts` 1건뿐이다.** 자기 `src/app/<route>/` 폴더 안은 자유, 공용 파일은 건드리기 전에 말한다는 규칙([`docs/SCREEN_ASSIGNMENTS.md`](docs/SCREEN_ASSIGNMENTS.md) 「충돌 방지」)이 실제로 작동했다
+- `modify/` 기록은 날짜만 쓰지 않고 `YYYY-MM-DD-<화면>.md`로 썼다. 같은 날 여러 명이 작업해도 겹치지 않게 하기 위해서고, **44개 파일에서 충돌 0건**이다
+- 남은 4건은 전부 **backend track 의 stacked PR** 에서 났다. 화면 분업이 잘못된 게 아니라 "앞 이슈가 `develop`에 들어가야 다음 이슈를 착수할 수 있는" 구조와 squash merge 정책이 맞물린 결과다
 
 ---
 
