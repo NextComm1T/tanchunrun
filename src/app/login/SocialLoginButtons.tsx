@@ -30,6 +30,23 @@ export function SocialLoginButtons() {
         <GoogleIcon />
         <span className="flex-1 text-center">Google로 계속하기</span>
       </a>
+
+      {/*
+        **발표 검토용 임시 버튼(#246). 발표가 끝나면 이 조각과 `/api/auth/test` 를 함께 지운다.**
+
+        구글 OAuth 앱이 미검증이라 외부 계정은 로그인 자체가 막힌다. 검토자가 화면을 눌러 볼 수
+        있도록 계정 하나로만 들어오는 문을 임시로 연다.
+
+        링크가 아니라 **form POST** 다 — 주소를 누르거나 프리페치하는 것으로는 세션이 생기지 않는다.
+      */}
+      <form action="/api/auth/test" method="post" className="w-full">
+        <button
+          type="submit"
+          className="flex h-[58px] w-full items-center justify-center rounded-xl border-[1.5px] border-dashed border-border bg-surface-muted px-[22px] text-content font-bold text-subtle"
+        >
+          테스트 계정으로 둘러보기
+        </button>
+      </form>
     </>
   );
 }
